@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public enum PlayerMode
 {
@@ -14,6 +15,8 @@ public sealed class PrototypePlayer : MonoBehaviour
     [SerializeField, Min(0.05f)] private float gridStepInterval = 0.18f;
     [SerializeField, Min(0.1f)] private float jumpHeight = 1.2f;
     [SerializeField] private LayerMask groundLayers;
+    [SerializeField] private Transform levelExit;
+    private bool levelComplete;
 
     [SerializeField, Min(0f)] private float pushStrength = 2f;
 
@@ -38,6 +41,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         public Vector3 Position;
         public Vector2 PlatformVelocity;
         public Vector3[] BoxPositions;
+        public PrototypeFallingBlock.State[] FallingBlocks;
+        public bool LevelComplete;
     }
 
     private readonly Stack<Snapshot> history = new Stack<Snapshot>();
@@ -47,6 +52,8 @@ public sealed class PrototypePlayer : MonoBehaviour
     private ActionKind activeAction;
     private PrototypePushBox activePushBox;
     [SerializeField] private BoxCollider[] platformSolids = System.Array.Empty<BoxCollider>();
+
+    [SerializeField] private PrototypeFallingBlock[] fallingBlocks = System.Array.Empty<PrototypeFallingBlock>();
 
     private GameObject platformPhysics;
     private Rigidbody2D platformBody;
@@ -74,8 +81,24 @@ public sealed class PrototypePlayer : MonoBehaviour
         initialState = CaptureState();
     }
 
+    private int NextLevelIndex
+    {
+        get
+        {
+            int current = SceneManager.GetActiveScene().buildIndex;
+            return current >= 0 && current + 1 < SceneManager.sceneCountInBuildSettings
+                ? current + 1 : -1;
+        }
+    }
+
     private void Update()
     {
+        if (levelComplete && Input.GetKeyDown(KeyCode.Return) && NextLevelIndex >= 0)
+        {
+            SceneManager.LoadScene(NextLevelIndex);
+            return;
+        }
+
         moveInput = Vector2.ClampMagnitude(new Vector2(
             Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")), 1f);
         if (waitForMoveRelease && moveInput == Vector2.zero)
@@ -127,6 +150,12 @@ public sealed class PrototypePlayer : MonoBehaviour
             return;
         }
 
+        if (levelComplete)
+            return;
+
+        if (TryCompleteLevel())
+            return;
+
         if (Mode == PlayerMode.Platform && platformBody.position.y < -4f)
         {
             // Respawn without adding a step: undo still targets the action that caused the fall.
@@ -163,6 +192,9 @@ public sealed class PrototypePlayer : MonoBehaviour
             projectedSolids[i] = projection.AddComponent<BoxCollider2D>();
         }
 
+        foreach (PrototypeFallingBlock block in fallingBlocks)
+            block.CreateFootprint(platformPhysics.transform);
+
         var proxy = new GameObject("Player footprint");
         proxy.transform.SetParent(platformPhysics.transform);
         platformBody = proxy.AddComponent<Rigidbody2D>();
@@ -179,19 +211,27 @@ public sealed class PrototypePlayer : MonoBehaviour
             Mode = Mode,
             Position = body.position,
             PlatformVelocity = Mode == PlayerMode.Platform ? platformBody.velocity : Vector2.zero,
-            BoxPositions = new Vector3[boxes.Length]
+            BoxPositions = new Vector3[boxes.Length],
+            FallingBlocks = new PrototypeFallingBlock.State[fallingBlocks.Length],
+            LevelComplete = levelComplete
         };
         for (int i = 0; i < boxes.Length; i++)
             state.BoxPositions[i] = boxes[i].Position;
+        for (int i = 0; i < fallingBlocks.Length; i++)
+            state.FallingBlocks[i] = fallingBlocks[i].CurrentState;
         return state;
     }
 
     private bool MatchesInitialState(Snapshot state)
     {
-        if (state.Mode != initialState.Mode || state.Position != initialState.Position)
+        if (state.LevelComplete || state.Mode != initialState.Mode || state.Position != initialState.Position)
             return false;
         for (int i = 0; i < boxes.Length; i++)
             if (state.BoxPositions[i] != initialState.BoxPositions[i])
+                return false;
+        for (int i = 0; i < fallingBlocks.Length; i++)
+            if (state.FallingBlocks[i].Position != initialState.FallingBlocks[i].Position ||
+                state.FallingBlocks[i].Velocity != initialState.FallingBlocks[i].Velocity)
                 return false;
         return true;
     }
@@ -204,11 +244,45 @@ public sealed class PrototypePlayer : MonoBehaviour
         for (int i = 0; i < boxes.Length; i++)
             boxes[i].Position = state.BoxPositions[i];
 
+        for (int i = 0; i < fallingBlocks.Length; i++)
+            fallingBlocks[i].RestoreWorldPosition(state.FallingBlocks[i]);
+
         body.position = state.Position;
         Physics.SyncTransforms();
         SetMode(state.Mode);
+        levelComplete = state.LevelComplete;
         if (state.Mode == PlayerMode.Platform)
+        {
             platformBody.velocity = state.PlatformVelocity;
+            if (levelComplete)
+                StopPlatformPhysics();
+        }
+    }
+
+    private bool TryCompleteLevel()
+    {
+        if (levelExit == null)
+            return false;
+
+        Vector3 position = body.position;
+        Vector3 offset = position - levelExit.position;
+        if (Mathf.Abs(offset.x) >= 0.4f || Mathf.Abs(offset.z) >= 0.4f ||
+            (Mode == PlayerMode.Grid && !HasSupport(position)))
+            return false;
+
+        EndAction();
+        levelComplete = true;
+        switchRequested = jumpRequested = false;
+        if (Mode == PlayerMode.Platform)
+            StopPlatformPhysics();
+        return true;
+    }
+
+    private void StopPlatformPhysics()
+    {
+        platformBody.simulated = false;
+        foreach (PrototypeFallingBlock block in fallingBlocks)
+            block.StopPhysics();
     }
 
     private void EndAction()
@@ -289,6 +363,9 @@ public sealed class PrototypePlayer : MonoBehaviour
     {
         Vector2 position = platformBody.position;
         body.position = new Vector3(position.x, spawnPosition.y, position.y);
+        if (!levelComplete)
+            foreach (PrototypeFallingBlock block in fallingBlocks)
+                block.SyncFromPhysics();
     }
 
     private void OnDestroy()
@@ -326,7 +403,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         float distanceToCenter = Vector3.Dot(cell - position, direction);
         if (distanceToCenter <= 0.001f)
             cell += direction;
-        if (!HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box))
+        // A switch over a hole preserves position, but cannot start a grid step.
+        if (!HasSupport(position) || !HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box))
         {
             EndAction();
             return;
@@ -383,18 +461,21 @@ public sealed class PrototypePlayer : MonoBehaviour
         bool platformMode = mode == PlayerMode.Platform;
         capsule.enabled = !platformMode;
         platformPhysics.SetActive(platformMode);
+        // Publish the final falling-block footprints before any grid collision query.
+        Physics.SyncTransforms();
         if (!platformMode)
             return;
-
-        Physics.SyncTransforms();
         for (int i = 0; i < platformSolids.Length; i++)
         {
             Bounds bounds = platformSolids[i].bounds;
             projectedSolids[i].transform.position = new Vector3(bounds.center.x, bounds.center.z, 0f);
             projectedSolids[i].size = new Vector2(bounds.size.x, bounds.size.z);
         }
+        platformBody.simulated = true;
         platformBody.position = new Vector2(body.position.x, body.position.z);
         platformBody.velocity = Vector2.zero;
+        foreach (PrototypeFallingBlock block in fallingBlocks)
+            block.ResumePhysics();
         Physics2D.SyncTransforms();
     }
 
@@ -402,12 +483,21 @@ public sealed class PrototypePlayer : MonoBehaviour
     {
         string controls = Mode == PlayerMode.Platform
             ? "TOP VIEW / A D or Left Right / Space: Jump"
-            : "GRID / WASD or Arrows / Push orange box";
-        GUI.Box(new Rect(12, 12, 360, 50), controls + "\nTab: Switch     R: Restart");
+            : "GRID / WASD or Arrows";
+        if (levelComplete)
+            controls = "LEVEL COMPLETE!";
+        else if (levelExit != null)
+            controls += fallingBlocks.Length == 0 ? "\nReach the green exit."
+                : "\nLet the block drop in 2D, then walk to the exit.";
+        float panelHeight = levelExit != null && !levelComplete ? 66f : 50f;
+        GUI.Box(new Rect(12, 12, 360, panelHeight), controls + "\nTab: Switch     R: Restart");
         bool wasEnabled = GUI.enabled;
         GUI.enabled = wasEnabled && history.Count > 0;
-        if (GUI.Button(new Rect(12, 68, 110, 28), "Undo (Z)"))
+        if (GUI.Button(new Rect(12, 18 + panelHeight, 110, 28), "Undo (Z)"))
             undoRequested = true;
         GUI.enabled = wasEnabled;
+        if (levelComplete && NextLevelIndex >= 0 &&
+            GUI.Button(new Rect(130, 18 + panelHeight, 150, 28), "Next Level (Enter)"))
+            SceneManager.LoadScene(NextLevelIndex);
     }
 }
