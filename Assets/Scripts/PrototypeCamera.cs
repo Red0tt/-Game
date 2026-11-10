@@ -5,12 +5,13 @@ public sealed class PrototypeCamera : MonoBehaviour
 {
     [SerializeField] private PrototypePlayer player;
     [SerializeField] private Vector3 focus = new Vector3(0f, 0.5f, 0f);
+    [SerializeField, Range(0f, 89f)] private float gridPitch = 45f;
 
     private void LateUpdate()
     {
-        Vector3 offset = player.Mode == PlayerMode.Side
-            ? new Vector3(0f, 0f, -16f)
-            : new Vector3(0f, 16f, -4f);
-        transform.SetPositionAndRotation(focus + offset, Quaternion.LookRotation(-offset));
+        float pitch = player.Mode == PlayerMode.Side ? 0f : gridPitch;
+        Quaternion rotation = Quaternion.Euler(pitch, 0f, 0f);
+        Vector3 offset = rotation * new Vector3(0f, 0f, -16f);
+        transform.SetPositionAndRotation(focus + offset, rotation);
     }
 }
