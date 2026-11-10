@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public enum PlayerMode
@@ -26,6 +27,25 @@ public sealed class PrototypePlayer : MonoBehaviour
     private bool jumpRequested;
     private bool switchRequested;
     private bool resetRequested;
+    private bool undoRequested;
+    private bool waitForMoveRelease;
+
+    private enum ActionKind { None, GridWalk, Push, PlatformWalk, Air }
+
+    private sealed class Snapshot
+    {
+        public PlayerMode Mode;
+        public Vector3 Position;
+        public Vector2 PlatformVelocity;
+        public Vector3[] BoxPositions;
+    }
+
+    private readonly Stack<Snapshot> history = new Stack<Snapshot>();
+    private Snapshot initialState;
+    private Snapshot pendingPlatformWalk;
+    private float platformXBeforeStep;
+    private ActionKind activeAction;
+    private PrototypePushBox activePushBox;
     [SerializeField] private BoxCollider[] platformSolids = System.Array.Empty<BoxCollider>();
 
     private GameObject platformPhysics;
@@ -49,11 +69,21 @@ public sealed class PrototypePlayer : MonoBehaviour
         SetMode(PlayerMode.Grid);
     }
 
+    private void Start()
+    {
+        initialState = CaptureState();
+    }
+
     private void Update()
     {
         moveInput = Vector2.ClampMagnitude(new Vector2(
             Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")), 1f);
-        if (Mode == PlayerMode.Grid)
+        if (waitForMoveRelease && moveInput == Vector2.zero)
+            waitForMoveRelease = false;
+
+        if (waitForMoveRelease)
+            moveInput = Vector2.zero;
+        else if (Mode == PlayerMode.Grid)
         {
             if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow))
                 queuedGridDirection = Vector3.right;
@@ -67,24 +97,47 @@ public sealed class PrototypePlayer : MonoBehaviour
         jumpRequested |= Input.GetKeyDown(KeyCode.Space);
         switchRequested |= Input.GetKeyDown(KeyCode.Tab);
         resetRequested |= Input.GetKeyDown(KeyCode.R);
+        undoRequested |= Input.GetKeyDown(KeyCode.Z);
     }
 
     private void FixedUpdate()
     {
-        if (resetRequested || (Mode == PlayerMode.Platform && platformBody.position.y < -4f))
+        if (Mode == PlayerMode.Platform)
         {
-            body.position = spawnPosition;
-            foreach (PrototypePushBox box in boxes)
-                box.ResetPosition();
-            SetMode(PlayerMode.Grid);
-            resetRequested = switchRequested = jumpRequested = false;
+            CopyPlatformPosition();
+            FinishPlatformStep();
+        }
+
+        if (undoRequested)
+        {
+            undoRequested = false;
+            if (history.Count > 0)
+            {
+                RestoreState(history.Pop());
+                return;
+            }
+        }
+
+        if (resetRequested)
+        {
+            Snapshot before = CaptureState();
+            if (!MatchesInitialState(before))
+                history.Push(before);
+            RestoreState(initialState);
+            return;
+        }
+
+        if (Mode == PlayerMode.Platform && platformBody.position.y < -4f)
+        {
+            // Respawn without adding a step: undo still targets the action that caused the fall.
+            RestoreState(initialState);
             return;
         }
 
         if (switchRequested)
         {
-            if (Mode == PlayerMode.Platform)
-                CopyPlatformPosition();
+            history.Push(CaptureState());
+            EndAction();
             SetMode(Mode == PlayerMode.Grid ? PlayerMode.Platform : PlayerMode.Grid);
             jumpRequested = switchRequested = false;
             return;
@@ -119,21 +172,110 @@ public sealed class PrototypePlayer : MonoBehaviour
         platformShape.size = new Vector2(0.64f, 0.8f);
     }
 
+    private Snapshot CaptureState()
+    {
+        var state = new Snapshot
+        {
+            Mode = Mode,
+            Position = body.position,
+            PlatformVelocity = Mode == PlayerMode.Platform ? platformBody.velocity : Vector2.zero,
+            BoxPositions = new Vector3[boxes.Length]
+        };
+        for (int i = 0; i < boxes.Length; i++)
+            state.BoxPositions[i] = boxes[i].Position;
+        return state;
+    }
+
+    private bool MatchesInitialState(Snapshot state)
+    {
+        if (state.Mode != initialState.Mode || state.Position != initialState.Position)
+            return false;
+        for (int i = 0; i < boxes.Length; i++)
+            if (state.BoxPositions[i] != initialState.BoxPositions[i])
+                return false;
+        return true;
+    }
+
+    private void RestoreState(Snapshot state)
+    {
+        EndAction();
+        resetRequested = switchRequested = jumpRequested = false;
+        waitForMoveRelease |= moveInput != Vector2.zero;
+        for (int i = 0; i < boxes.Length; i++)
+            boxes[i].Position = state.BoxPositions[i];
+
+        body.position = state.Position;
+        Physics.SyncTransforms();
+        SetMode(state.Mode);
+        if (state.Mode == PlayerMode.Platform)
+            platformBody.velocity = state.PlatformVelocity;
+    }
+
+    private void EndAction()
+    {
+        activeAction = ActionKind.None;
+        activePushBox = null;
+        pendingPlatformWalk = null;
+    }
+
+    private bool IsPlatformGrounded()
+    {
+        if (platformBody.velocity.y > 0.05f)
+            return false;
+        int count = platformShape.GetContacts(platformContacts);
+        for (int i = 0; i < count; i++)
+            if (platformContacts[i].normal.y >= 0.5f)
+                return true;
+        return false;
+    }
+
+    private void FinishPlatformStep()
+    {
+        bool grounded = IsPlatformGrounded();
+        bool moved = Mathf.Abs(platformBody.position.x - platformXBeforeStep) > 0.00001f;
+        if (pendingPlatformWalk != null)
+        {
+            if (moved)
+            {
+                history.Push(pendingPlatformWalk);
+                activeAction = grounded ? ActionKind.PlatformWalk : ActionKind.Air;
+            }
+            pendingPlatformWalk = null;
+        }
+        else if (activeAction == ActionKind.PlatformWalk)
+        {
+            if (!grounded)
+                activeAction = ActionKind.Air;
+            else if (!moved)
+                EndAction();
+        }
+        else if (activeAction == ActionKind.Air && grounded)
+        {
+            EndAction();
+        }
+    }
+
     private void UpdatePlatformMovement()
     {
         Vector2 velocity = platformBody.velocity;
-        velocity.x = moveInput.x * sideSpeed;
-        if (jumpRequested && velocity.y <= 0.05f)
+        if (jumpRequested && IsPlatformGrounded())
         {
-            int count = platformShape.GetContacts(platformContacts);
-            for (int i = 0; i < count; i++)
-            {
-                if (platformContacts[i].normal.y < 0.5f)
-                    continue;
-                velocity.y = Mathf.Sqrt(-2f * Physics2D.gravity.y * jumpHeight);
-                break;
-            }
+            history.Push(CaptureState());
+            activeAction = ActionKind.Air;
+            velocity.y = Mathf.Sqrt(-2f * Physics2D.gravity.y * jumpHeight);
         }
+        else if (moveInput.x == 0f && activeAction == ActionKind.PlatformWalk)
+        {
+            EndAction();
+        }
+        else if (moveInput.x != 0f && activeAction == ActionKind.None)
+        {
+            // Confirm actual displacement after the physics step so a blocked input adds no history.
+            pendingPlatformWalk = CaptureState();
+        }
+
+        platformXBeforeStep = platformBody.position.x;
+        velocity.x = moveInput.x * sideSpeed;
         platformBody.velocity = velocity;
     }
 
@@ -162,6 +304,7 @@ public sealed class PrototypePlayer : MonoBehaviour
         {
             if (moveInput == Vector2.zero)
             {
+                EndAction();
                 nextGridStep = 0f;
                 return;
             }
@@ -184,11 +327,23 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (distanceToCenter <= 0.001f)
             cell += direction;
         if (!HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box))
+        {
+            EndAction();
             return;
+        }
 
+        ActionKind kind = box == null ? ActionKind.GridWalk : ActionKind.Push;
+        Snapshot before = kind != activeAction || box != activePushBox ? CaptureState() : null;
         if (box != null && !box.TryPushCell(direction, pushStrength, groundLayers))
+        {
+            EndAction();
             return;
+        }
 
+        if (before != null)
+            history.Push(before);
+        activeAction = kind;
+        activePushBox = box;
         body.position = cell;
     }
 
@@ -248,6 +403,11 @@ public sealed class PrototypePlayer : MonoBehaviour
         string controls = Mode == PlayerMode.Platform
             ? "TOP VIEW / A D or Left Right / Space: Jump"
             : "GRID / WASD or Arrows / Push orange box";
-        GUI.Box(new Rect(12, 12, 360, 50), controls + "\nTab: Switch     R: Reset");
+        GUI.Box(new Rect(12, 12, 360, 50), controls + "\nTab: Switch     R: Restart");
+        bool wasEnabled = GUI.enabled;
+        GUI.enabled = wasEnabled && history.Count > 0;
+        if (GUI.Button(new Rect(12, 68, 110, 28), "Undo (Z)"))
+            undoRequested = true;
+        GUI.enabled = wasEnabled;
     }
 }

@@ -8,13 +8,16 @@ public sealed class PrototypePushBox : MonoBehaviour
     private const float Clearance = 0.01f;
     private Rigidbody body;
     private BoxCollider shape;
-    private Vector3 spawnPosition;
+    public Vector3 Position
+    {
+        get => body.position;
+        set => body.position = value;
+    }
 
     private void Awake()
     {
         body = GetComponent<Rigidbody>();
         shape = GetComponent<BoxCollider>();
-        spawnPosition = body.position;
     }
 
     public bool TryPushCell(Vector3 direction, float strength, LayerMask solidLayers)
@@ -42,10 +45,5 @@ public sealed class PrototypePushBox : MonoBehaviour
 
         body.position += direction;
         return true;
-    }
-
-    public void ResetPosition()
-    {
-        body.position = spawnPosition;
     }
 }
