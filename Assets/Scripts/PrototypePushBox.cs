@@ -4,7 +4,6 @@ using UnityEngine;
 public sealed class PrototypePushBox : MonoBehaviour
 {
     [SerializeField, Min(0.1f)] private float weight = 1f;
-    [SerializeField, Min(0.1f)] private float pushSpeed = 2f;
 
     private const float Clearance = 0.01f;
     private Rigidbody body;
@@ -18,34 +17,31 @@ public sealed class PrototypePushBox : MonoBehaviour
         spawnPosition = body.position;
     }
 
-    public void TryPush(Vector3 direction, float strength, LayerMask solidLayers)
+    public bool TryPushCell(Vector3 direction, float strength, LayerMask solidLayers)
     {
         if (weight > strength)
-            return;
+            return false;
 
         Bounds bounds = shape.bounds;
-        Vector3 halfExtents = bounds.extents;
-        halfExtents.y -= Clearance;
-        float distance = pushSpeed * Time.fixedDeltaTime;
-        if (Physics.BoxCast(bounds.center, halfExtents, direction, out RaycastHit hit,
-                Quaternion.identity, distance + Clearance, solidLayers, QueryTriggerInteraction.Ignore))
-            distance = Mathf.Max(0f, hit.distance - Clearance);
+        Vector3 halfExtents = bounds.extents - Vector3.one * Clearance;
+        Vector3 target = bounds.center + direction;
+        if (Physics.CheckBox(target, halfExtents, Quaternion.identity,
+                solidLayers, QueryTriggerInteraction.Ignore))
+            return false;
 
-        Vector3 displacement = direction * distance;
-        Vector3 bottom = bounds.center + displacement - Vector3.up * halfExtents.y;
-        // Each corner needs support so a kinematic box cannot be pushed out over an edge.
+        // All corners need support on the destination cell.
+        Vector3 bottom = target - Vector3.up * halfExtents.y;
         for (int x = -1; x <= 1; x += 2)
         for (int z = -1; z <= 1; z += 2)
         {
-            Vector3 corner = bottom + new Vector3(x * (halfExtents.x - Clearance),
-                0f, z * (halfExtents.z - Clearance));
-            if (!Physics.Raycast(corner, Vector3.down, 3f * Clearance, solidLayers,
-                    QueryTriggerInteraction.Ignore))
-                return;
+            Vector3 corner = bottom + new Vector3(x * halfExtents.x, 0f, z * halfExtents.z);
+            if (!Physics.Raycast(corner, Vector3.down, 3f * Clearance,
+                    solidLayers, QueryTriggerInteraction.Ignore))
+                return false;
         }
 
-        if (distance > 0f)
-            body.MovePosition(body.position + displacement);
+        body.position += direction;
+        return true;
     }
 
     public void ResetPosition()
