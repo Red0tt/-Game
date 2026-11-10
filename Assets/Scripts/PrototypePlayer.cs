@@ -64,6 +64,8 @@ public sealed class PrototypePlayer : MonoBehaviour
     private Rigidbody2D platformBody;
     private CapsuleCollider2D platformShape;
     private BoxCollider2D[] projectedSolids;
+    [SerializeField] private BoxCollider spikeBed;
+    private BoxCollider2D projectedSpikeBed;
     private readonly ContactPoint2D[] platformContacts = new ContactPoint2D[8];
 
     public PlayerMode Mode { get; private set; }
@@ -157,7 +159,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (TryCompleteLevel())
             return;
 
-        if (Mode == PlayerMode.Platform && platformBody.position.y < fallLimit)
+        if (Mode == PlayerMode.Platform && (platformBody.position.y < fallLimit ||
+            (projectedSpikeBed != null && platformShape.IsTouching(projectedSpikeBed))))
         {
             // Respawn without adding a step: undo still targets the action that caused the fall.
             RestoreState(initialState);
@@ -191,7 +194,10 @@ public sealed class PrototypePlayer : MonoBehaviour
             var projection = new GameObject(platformSolids[i].name + " footprint");
             projection.transform.SetParent(platformPhysics.transform);
             projectedSolids[i] = projection.AddComponent<BoxCollider2D>();
+            if (platformSolids[i] == spikeBed)
+                projectedSpikeBed = projectedSolids[i];
         }
+
 
         projectedBoxes = new BoxCollider2D[boxes.Length];
         for (int i = 0; i < boxes.Length; i++)

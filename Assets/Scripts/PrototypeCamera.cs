@@ -5,7 +5,7 @@ public sealed class PrototypeCamera : MonoBehaviour
 {
     [SerializeField] private PrototypePlayer player;
     [SerializeField] private Vector3 focus = new Vector3(0f, 0.5f, 0f);
-    [SerializeField, Range(0f, 89f)] private float gridPitch = 45f;
+    [SerializeField, Range(0f, 89f)] private float gridPitch = 70f;
 
     [SerializeField] private bool followRows;
     [SerializeField] private float minFocusZ;

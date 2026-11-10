@@ -451,7 +451,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   player: {fileID: 234993277}
   focus: {x: 0, y: 0.5, z: 1}
-  gridPitch: 45
+  gridPitch: 70
 --- !u!1 &1546014696
 GameObject:
   m_ObjectHideFlags: 0
@@ -3021,7 +3021,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: a5d3587c5ef849e89b94bb9dd3a91315, type: 2}
+  - {fileID: 2100000, guid: a5cf63c8db18499983e3cf06dfca24a7, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
