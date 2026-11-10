@@ -9,7 +9,7 @@ public sealed class PrototypeCamera : MonoBehaviour
 
     private void LateUpdate()
     {
-        float pitch = player.Mode == PlayerMode.Side ? 0f : gridPitch;
+        float pitch = player.Mode == PlayerMode.Platform ? 90f : gridPitch;
         Quaternion rotation = Quaternion.Euler(pitch, 0f, 0f);
         Vector3 offset = rotation * new Vector3(0f, 0f, -16f);
         transform.SetPositionAndRotation(focus + offset, rotation);

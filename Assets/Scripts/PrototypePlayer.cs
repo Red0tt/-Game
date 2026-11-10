@@ -2,7 +2,7 @@ using UnityEngine;
 
 public enum PlayerMode
 {
-    Side,
+    Platform,
     Grid
 }
 
@@ -26,7 +26,13 @@ public sealed class PrototypePlayer : MonoBehaviour
     private bool jumpRequested;
     private bool switchRequested;
     private bool resetRequested;
-    private float switchBlockedUntil;
+    [SerializeField] private BoxCollider[] platformSolids = System.Array.Empty<BoxCollider>();
+
+    private GameObject platformPhysics;
+    private Rigidbody2D platformBody;
+    private CapsuleCollider2D platformShape;
+    private BoxCollider2D[] projectedSolids;
+    private readonly ContactPoint2D[] platformContacts = new ContactPoint2D[8];
 
     public PlayerMode Mode { get; private set; }
 
@@ -36,7 +42,11 @@ public sealed class PrototypePlayer : MonoBehaviour
         capsule = GetComponent<CapsuleCollider>();
         spawnPosition = body.position;
         boxes = FindObjectsOfType<PrototypePushBox>();
-        SetMode(PlayerMode.Side);
+        body.isKinematic = true;
+        body.useGravity = false;
+        body.interpolation = RigidbodyInterpolation.None;
+        CreatePlatformPhysics();
+        SetMode(PlayerMode.Grid);
     }
 
     private void Update()
@@ -61,64 +71,88 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (resetRequested || body.position.y < -4f)
+        if (resetRequested || (Mode == PlayerMode.Platform && platformBody.position.y < -4f))
         {
             body.position = spawnPosition;
-            body.velocity = Vector3.zero;
             foreach (PrototypePushBox box in boxes)
                 box.ResetPosition();
-            SetMode(PlayerMode.Side);
-            switchBlockedUntil = 0f;
+            SetMode(PlayerMode.Grid);
             resetRequested = switchRequested = jumpRequested = false;
             return;
         }
 
-        bool grounded = IsGrounded();
         if (switchRequested)
         {
-            if (grounded && TrySwitchMode())
-            {
-                jumpRequested = switchRequested = false;
-                return;
-            }
-            switchBlockedUntil = Time.time + 1.2f;
+            if (Mode == PlayerMode.Platform)
+                CopyPlatformPosition();
+            SetMode(Mode == PlayerMode.Grid ? PlayerMode.Platform : PlayerMode.Grid);
+            jumpRequested = switchRequested = false;
+            return;
         }
 
         if (Mode == PlayerMode.Grid)
-        {
             UpdateGridMovement();
-        }
         else
-        {
-            Vector3 velocity = body.velocity;
-            velocity.x = moveInput.x * sideSpeed;
-            velocity.z = 0f;
-            if (jumpRequested && !switchRequested && grounded)
-                velocity.y = Mathf.Sqrt(-2f * Physics.gravity.y * jumpHeight);
-            body.velocity = velocity;
-        }
+            UpdatePlatformMovement();
 
-        jumpRequested = switchRequested = false;
+        jumpRequested = false;
     }
 
-    private bool TrySwitchMode()
+    private void CreatePlatformPhysics()
     {
-        if (Mode == PlayerMode.Side)
+        platformPhysics = new GameObject("Top View Physics");
+        platformPhysics.SetActive(false);
+        projectedSolids = new BoxCollider2D[platformSolids.Length];
+        for (int i = 0; i < platformSolids.Length; i++)
         {
-            Vector3 cell = body.position;
-            cell.x = Mathf.Round(cell.x);
-            cell.z = Mathf.Round(cell.z);
-            if (!HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box) || box != null)
-                return false;
-            body.position = cell;
-            body.velocity = Vector3.zero;
-            SetMode(PlayerMode.Grid);
+            var projection = new GameObject(platformSolids[i].name + " footprint");
+            projection.transform.SetParent(platformPhysics.transform);
+            projectedSolids[i] = projection.AddComponent<BoxCollider2D>();
         }
-        else
+
+        var proxy = new GameObject("Player footprint");
+        proxy.transform.SetParent(platformPhysics.transform);
+        platformBody = proxy.AddComponent<Rigidbody2D>();
+        platformBody.freezeRotation = true;
+        platformBody.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        platformShape = proxy.AddComponent<CapsuleCollider2D>();
+        platformShape.size = new Vector2(0.64f, 0.8f);
+    }
+
+    private void UpdatePlatformMovement()
+    {
+        Vector2 velocity = platformBody.velocity;
+        velocity.x = moveInput.x * sideSpeed;
+        if (jumpRequested && velocity.y <= 0.05f)
         {
-            SetMode(PlayerMode.Side);
+            int count = platformShape.GetContacts(platformContacts);
+            for (int i = 0; i < count; i++)
+            {
+                if (platformContacts[i].normal.y < 0.5f)
+                    continue;
+                velocity.y = Mathf.Sqrt(-2f * Physics2D.gravity.y * jumpHeight);
+                break;
+            }
         }
-        return true;
+        platformBody.velocity = velocity;
+    }
+
+    private void LateUpdate()
+    {
+        if (Mode == PlayerMode.Platform)
+            CopyPlatformPosition();
+    }
+
+    private void CopyPlatformPosition()
+    {
+        Vector2 position = platformBody.position;
+        body.position = new Vector3(position.x, spawnPosition.y, position.y);
+    }
+
+    private void OnDestroy()
+    {
+        if (platformPhysics != null)
+            Destroy(platformPhysics);
     }
 
     private void UpdateGridMovement()
@@ -142,7 +176,13 @@ public sealed class PrototypePlayer : MonoBehaviour
         queuedGridDirection = Vector3.zero;
         nextGridStep = Time.fixedTime + gridStepInterval;
 
-        Vector3 cell = body.position + direction;
+        Vector3 position = body.position;
+        Vector3 cell = new Vector3(Mathf.Round(position.x), position.y, Mathf.Round(position.z));
+        // An airborne switch can leave the player between centers. Move to the
+        // first center ahead on the requested axis.
+        float distanceToCenter = Vector3.Dot(cell - position, direction);
+        if (distanceToCenter <= 0.001f)
+            cell += direction;
         if (!HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box))
             return;
 
@@ -179,38 +219,35 @@ public sealed class PrototypePlayer : MonoBehaviour
         return false;
     }
 
-    private bool IsGrounded()
-    {
-        if (body.velocity.y > 0.05f)
-            return false;
-
-        Vector3 center = body.position + capsule.center;
-        float radius = capsule.radius * 0.85f;
-        float distance = capsule.height * 0.5f - radius + 0.06f;
-        return Physics.SphereCast(center, radius, Vector3.down, out RaycastHit hit,
-            distance, groundLayers, QueryTriggerInteraction.Ignore) && hit.normal.y > 0.5f;
-    }
-
     private void SetMode(PlayerMode mode)
     {
         Mode = mode;
         queuedGridDirection = Vector3.zero;
         nextGridStep = 0f;
-        body.useGravity = mode == PlayerMode.Side;
-        body.constraints = RigidbodyConstraints.FreezeRotation;
-        if (mode == PlayerMode.Side)
-            body.constraints |= RigidbodyConstraints.FreezePositionZ;
-        else
-            body.constraints |= RigidbodyConstraints.FreezePositionY;
+
+        bool platformMode = mode == PlayerMode.Platform;
+        capsule.enabled = !platformMode;
+        platformPhysics.SetActive(platformMode);
+        if (!platformMode)
+            return;
+
+        Physics.SyncTransforms();
+        for (int i = 0; i < platformSolids.Length; i++)
+        {
+            Bounds bounds = platformSolids[i].bounds;
+            projectedSolids[i].transform.position = new Vector3(bounds.center.x, bounds.center.z, 0f);
+            projectedSolids[i].size = new Vector2(bounds.size.x, bounds.size.z);
+        }
+        platformBody.position = new Vector2(body.position.x, body.position.z);
+        platformBody.velocity = Vector2.zero;
+        Physics2D.SyncTransforms();
     }
 
     private void OnGUI()
     {
-        string controls = Mode == PlayerMode.Side
-            ? "SIDE / A D or Left Right / Space: Jump"
+        string controls = Mode == PlayerMode.Platform
+            ? "TOP VIEW / A D or Left Right / Space: Jump"
             : "GRID / WASD or Arrows / Push orange box";
-        GUI.Box(new Rect(12, 12, 360, 65),
-            controls + "\nTab: Switch     R: Reset" +
-            (Time.time < switchBlockedUntil ? "\nSwitch requires a clear, supported cell." : ""));
+        GUI.Box(new Rect(12, 12, 360, 50), controls + "\nTab: Switch     R: Reset");
     }
 }
