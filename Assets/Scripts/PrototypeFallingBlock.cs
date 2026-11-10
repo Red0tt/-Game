@@ -13,6 +13,8 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
 
     private Rigidbody2D footprint;
     private float worldHeight;
+    private float heightBeforeStep;
+    private float speedBeforeStep;
     public State CurrentState { get; private set; }
 
     public void CreateFootprint(Transform parent)
@@ -50,6 +52,20 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         footprint.simulated = true;
         footprint.position = CurrentState.Position;
         footprint.velocity = CurrentState.Velocity;
+        RecordBeforePhysicsStep();
+    }
+
+    public void RecordBeforePhysicsStep()
+    {
+        heightBeforeStep = footprint.position.y;
+        speedBeforeStep = footprint.velocity.y;
+    }
+
+    public bool FellOnto(ContactPoint2D contact)
+    {
+        // The collision solver can stop the block before the player reads the contact.
+        return (contact.rigidbody == footprint || contact.otherRigidbody == footprint) &&
+            (speedBeforeStep < -0.01f || footprint.position.y < heightBeforeStep - 0.001f);
     }
 
     public void StopPhysics()

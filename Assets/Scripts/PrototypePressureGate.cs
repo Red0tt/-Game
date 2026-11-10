@@ -6,6 +6,8 @@ public sealed class PrototypePressureGate : MonoBehaviour
     [SerializeField] private BoxCollider door;
     [SerializeField] private Renderer doorVisual;
 
+    public bool IsOpen => !door.enabled;
+
     public void Refresh(PrototypePushBox[] boxes)
     {
         bool open = false;

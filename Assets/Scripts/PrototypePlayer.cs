@@ -16,6 +16,7 @@ public sealed class PrototypePlayer : MonoBehaviour
     [SerializeField, Min(0.1f)] private float jumpHeight = 1.2f;
     [SerializeField] private LayerMask groundLayers;
     [SerializeField] private Transform levelExit;
+    [SerializeField] private PrototypePressureGate exitGate;
     private bool levelComplete;
 
     [SerializeField, Min(0f)] private float pushStrength = 2f;
@@ -32,6 +33,9 @@ public sealed class PrototypePlayer : MonoBehaviour
     private bool resetRequested;
     private bool undoRequested;
     private bool waitForMoveRelease;
+    private bool fallingInGrid;
+    private float gridFallSpeed;
+    private const float GridFallDistance = 1.5f;
 
     private enum ActionKind { None, GridWalk, Push, PlatformWalk, Air }
 
@@ -146,9 +150,12 @@ public sealed class PrototypePlayer : MonoBehaviour
 
         if (resetRequested)
         {
-            Snapshot before = CaptureState();
-            if (!MatchesInitialState(before))
-                history.Push(before);
+            if (!fallingInGrid)
+            {
+                Snapshot before = CaptureState();
+                if (!MatchesInitialState(before))
+                    history.Push(before);
+            }
             RestoreState(initialState);
             return;
         }
@@ -156,22 +163,40 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (levelComplete)
             return;
 
-        if (TryCompleteLevel())
-            return;
-
-        if (Mode == PlayerMode.Platform && (platformBody.position.y < fallLimit ||
-            (projectedSpikeBed != null && platformShape.IsTouching(projectedSpikeBed))))
+        if (fallingInGrid)
         {
-            // Respawn without adding a step: undo still targets the action that caused the fall.
-            RestoreState(initialState);
+            gridFallSpeed += Physics.gravity.y * Time.fixedDeltaTime;
+            body.position += Vector3.up * (gridFallSpeed * Time.fixedDeltaTime);
+            if (body.position.y <= spawnPosition.y - GridFallDistance)
+                RespawnAfterFailure();
             return;
         }
+
+        if (Mode == PlayerMode.Platform && HasPlatformFailure())
+        {
+            RespawnAfterFailure();
+            return;
+        }
+
+        if (TryCompleteLevel())
+            return;
 
         if (switchRequested)
         {
             history.Push(CaptureState());
             EndAction();
-            SetMode(Mode == PlayerMode.Grid ? PlayerMode.Platform : PlayerMode.Grid);
+            PlayerMode nextMode = Mode == PlayerMode.Grid ? PlayerMode.Platform : PlayerMode.Grid;
+            if (nextMode == PlayerMode.Grid)
+            {
+                Vector3 position = body.position;
+                body.position = new Vector3(Mathf.Round(position.x), position.y, Mathf.Round(position.z));
+            }
+            SetMode(nextMode);
+            if (Mode == PlayerMode.Grid && !HasSupport(body.position))
+            {
+                fallingInGrid = true;
+                capsule.enabled = false;
+            }
             jumpRequested = switchRequested = false;
             return;
         }
@@ -184,6 +209,32 @@ public sealed class PrototypePlayer : MonoBehaviour
         jumpRequested = false;
     }
 
+    private bool HasPlatformFailure()
+    {
+        if (platformBody.position.y < fallLimit ||
+            (projectedSpikeBed != null && platformShape.IsTouching(projectedSpikeBed)))
+            return true;
+
+        int count = platformShape.GetContacts(platformContacts);
+        for (int i = 0; i < count; i++)
+        {
+            ContactPoint2D contact = platformContacts[i];
+            if (contact.normal.y > -0.5f)
+                continue;
+
+            foreach (PrototypeFallingBlock block in fallingBlocks)
+                if (block.FellOnto(contact))
+                    return true;
+        }
+        return false;
+    }
+
+    private void RespawnAfterFailure()
+    {
+        // Undo still targets the action that led to the failure.
+        RestoreState(initialState);
+    }
+
     private void CreatePlatformPhysics()
     {
         platformPhysics = new GameObject("Top View Physics");
@@ -191,10 +242,13 @@ public sealed class PrototypePlayer : MonoBehaviour
         projectedSolids = new BoxCollider2D[platformSolids.Length];
         for (int i = 0; i < platformSolids.Length; i++)
         {
-            var projection = new GameObject(platformSolids[i].name + " footprint");
+            BoxCollider solid = platformSolids[i];
+            if (solid == null)
+                continue;
+            var projection = new GameObject(solid.name + " footprint");
             projection.transform.SetParent(platformPhysics.transform);
             projectedSolids[i] = projection.AddComponent<BoxCollider2D>();
-            if (platformSolids[i] == spikeBed)
+            if (solid == spikeBed)
                 projectedSpikeBed = projectedSolids[i];
         }
 
@@ -276,7 +330,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     private bool TryCompleteLevel()
     {
-        if (levelExit == null)
+        if (levelExit == null || (exitGate != null && !exitGate.IsOpen))
             return false;
 
         Vector3 position = body.position;
@@ -366,6 +420,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         platformXBeforeStep = platformBody.position.x;
         velocity.x = moveInput.x * sideSpeed;
         platformBody.velocity = velocity;
+        foreach (PrototypeFallingBlock block in fallingBlocks)
+            block.RecordBeforePhysicsStep();
     }
 
     private void LateUpdate()
@@ -412,13 +468,7 @@ public sealed class PrototypePlayer : MonoBehaviour
         nextGridStep = Time.fixedTime + gridStepInterval;
 
         Vector3 position = body.position;
-        Vector3 cell = new Vector3(Mathf.Round(position.x), position.y, Mathf.Round(position.z));
-        // An airborne switch can leave the player between centers. Move to the
-        // first center ahead on the requested axis.
-        float distanceToCenter = Vector3.Dot(cell - position, direction);
-        if (distanceToCenter <= 0.001f)
-            cell += direction;
-        // A switch over a hole preserves position, but cannot start a grid step.
+        Vector3 cell = position + direction;
         if (!HasSupport(position) || !HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box))
         {
             EndAction();
@@ -491,6 +541,8 @@ public sealed class PrototypePlayer : MonoBehaviour
     private void SetMode(PlayerMode mode)
     {
         Mode = mode;
+        fallingInGrid = false;
+        gridFallSpeed = 0f;
         queuedGridDirection = Vector3.zero;
         nextGridStep = 0f;
 
@@ -503,7 +555,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (!platformMode)
             return;
         for (int i = 0; i < platformSolids.Length; i++)
-            UpdateProjection(platformSolids[i], projectedSolids[i]);
+            if (projectedSolids[i] != null)
+                UpdateProjection(platformSolids[i], projectedSolids[i]);
         for (int i = 0; i < boxes.Length; i++)
         {
             BoxCollider shape = boxes[i].GetComponent<BoxCollider>();
