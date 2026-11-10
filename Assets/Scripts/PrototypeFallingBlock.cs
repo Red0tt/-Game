@@ -9,6 +9,8 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         public Vector2 Velocity;
     }
 
+    [SerializeField, Min(0f)] private float gravityScale = 1f;
+
     private Rigidbody2D footprint;
     private float worldHeight;
     public State CurrentState { get; private set; }
@@ -26,6 +28,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         footprint.constraints = RigidbodyConstraints2D.FreezePositionX | RigidbodyConstraints2D.FreezeRotation;
         footprint.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         footprint.mass = 100f;
+        footprint.gravityScale = gravityScale;
         var projectedShape = proxy.AddComponent<BoxCollider2D>();
         Vector3 size = Vector3.Scale(shape.size, transform.lossyScale);
         projectedShape.size = new Vector2(size.x, size.z);

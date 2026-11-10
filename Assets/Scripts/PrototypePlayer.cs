@@ -55,7 +55,12 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     [SerializeField] private PrototypeFallingBlock[] fallingBlocks = System.Array.Empty<PrototypeFallingBlock>();
 
+    [SerializeField] private PrototypePressureGate[] gates = System.Array.Empty<PrototypePressureGate>();
+    [SerializeField] private string levelHint;
+    [SerializeField] private float fallLimit = -4f;
+
     private GameObject platformPhysics;
+    private BoxCollider2D[] projectedBoxes;
     private Rigidbody2D platformBody;
     private CapsuleCollider2D platformShape;
     private BoxCollider2D[] projectedSolids;
@@ -63,7 +68,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     public PlayerMode Mode { get; private set; }
 
-    private void Awake()
+    private void Start()
     {
         body = GetComponent<Rigidbody>();
         capsule = GetComponent<CapsuleCollider>();
@@ -74,10 +79,6 @@ public sealed class PrototypePlayer : MonoBehaviour
         body.interpolation = RigidbodyInterpolation.None;
         CreatePlatformPhysics();
         SetMode(PlayerMode.Grid);
-    }
-
-    private void Start()
-    {
         initialState = CaptureState();
     }
 
@@ -156,7 +157,7 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (TryCompleteLevel())
             return;
 
-        if (Mode == PlayerMode.Platform && platformBody.position.y < -4f)
+        if (Mode == PlayerMode.Platform && platformBody.position.y < fallLimit)
         {
             // Respawn without adding a step: undo still targets the action that caused the fall.
             RestoreState(initialState);
@@ -190,6 +191,14 @@ public sealed class PrototypePlayer : MonoBehaviour
             var projection = new GameObject(platformSolids[i].name + " footprint");
             projection.transform.SetParent(platformPhysics.transform);
             projectedSolids[i] = projection.AddComponent<BoxCollider2D>();
+        }
+
+        projectedBoxes = new BoxCollider2D[boxes.Length];
+        for (int i = 0; i < boxes.Length; i++)
+        {
+            var projection = new GameObject(boxes[i].name + " footprint");
+            projection.transform.SetParent(platformPhysics.transform);
+            projectedBoxes[i] = projection.AddComponent<BoxCollider2D>();
         }
 
         foreach (PrototypeFallingBlock block in fallingBlocks)
@@ -423,6 +432,11 @@ public sealed class PrototypePlayer : MonoBehaviour
         activeAction = kind;
         activePushBox = box;
         body.position = cell;
+        if (box != null)
+        {
+            RefreshGates();
+            Physics.SyncTransforms();
+        }
     }
 
     private bool HasSupport(Vector3 position)
@@ -452,6 +466,22 @@ public sealed class PrototypePlayer : MonoBehaviour
         return false;
     }
 
+    private void RefreshGates()
+    {
+        foreach (PrototypePressureGate gate in gates)
+            gate.Refresh(boxes);
+    }
+
+    private static void UpdateProjection(BoxCollider source, BoxCollider2D projection)
+    {
+        projection.enabled = source.enabled;
+        if (!source.enabled)
+            return;
+        Bounds bounds = source.bounds;
+        projection.transform.position = new Vector3(bounds.center.x, bounds.center.z, 0f);
+        projection.size = new Vector2(bounds.size.x, bounds.size.z);
+    }
+
     private void SetMode(PlayerMode mode)
     {
         Mode = mode;
@@ -461,15 +491,20 @@ public sealed class PrototypePlayer : MonoBehaviour
         bool platformMode = mode == PlayerMode.Platform;
         capsule.enabled = !platformMode;
         platformPhysics.SetActive(platformMode);
+        RefreshGates();
         // Publish the final falling-block footprints before any grid collision query.
         Physics.SyncTransforms();
         if (!platformMode)
             return;
         for (int i = 0; i < platformSolids.Length; i++)
+            UpdateProjection(platformSolids[i], projectedSolids[i]);
+        for (int i = 0; i < boxes.Length; i++)
         {
-            Bounds bounds = platformSolids[i].bounds;
-            projectedSolids[i].transform.position = new Vector3(bounds.center.x, bounds.center.z, 0f);
-            projectedSolids[i].size = new Vector2(bounds.size.x, bounds.size.z);
+            BoxCollider shape = boxes[i].GetComponent<BoxCollider>();
+            if (System.Array.IndexOf(platformSolids, shape) >= 0)
+                projectedBoxes[i].enabled = false;
+            else
+                UpdateProjection(shape, projectedBoxes[i]);
         }
         platformBody.simulated = true;
         platformBody.position = new Vector2(body.position.x, body.position.z);
@@ -485,9 +520,9 @@ public sealed class PrototypePlayer : MonoBehaviour
             ? "TOP VIEW / A D or Left Right / Space: Jump"
             : "GRID / WASD or Arrows";
         if (levelComplete)
-            controls = "LEVEL COMPLETE!";
+            controls = NextLevelIndex >= 0 ? "LEVEL COMPLETE!" : "ALL LEVELS COMPLETE!";
         else if (levelExit != null)
-            controls += fallingBlocks.Length == 0 ? "\nReach the green exit."
+            controls += !string.IsNullOrEmpty(levelHint) ? "\n" + levelHint : fallingBlocks.Length == 0 ? "\nReach the green exit."
                 : "\nLet the block drop in 2D, then walk to the exit.";
         float panelHeight = levelExit != null && !levelComplete ? 66f : 50f;
         GUI.Box(new Rect(12, 12, 360, panelHeight), controls + "\nTab: Switch     R: Restart");
