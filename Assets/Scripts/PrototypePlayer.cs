@@ -124,7 +124,7 @@ public sealed class PrototypePlayer : MonoBehaviour
                 queuedGridDirection = Vector3.back;
         }
         jumpRequested |= Input.GetKeyDown(KeyCode.Space);
-        switchRequested |= Input.GetKeyDown(KeyCode.Tab);
+        switchRequested |= Input.GetKeyDown(KeyCode.RightShift);
         resetRequested |= Input.GetKeyDown(KeyCode.R);
         undoRequested |= Input.GetKeyDown(KeyCode.Z);
     }
@@ -191,11 +191,8 @@ public sealed class PrototypePlayer : MonoBehaviour
                 body.position = new Vector3(Mathf.Round(position.x), position.y, Mathf.Round(position.z));
             }
             SetMode(nextMode);
-            if (Mode == PlayerMode.Grid && !HasSupport(body.position))
-            {
-                fallingInGrid = true;
-                capsule.enabled = false;
-            }
+            if (Mode == PlayerMode.Grid)
+                CheckGridSupport();
             jumpRequested = switchRequested = false;
             return;
         }
@@ -468,7 +465,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
         Vector3 position = body.position;
         Vector3 cell = position + direction;
-        if (!HasSupport(position) || !HasSupport(cell) || HasObstacle(cell, out PrototypePushBox box))
+        if (!HasSupport(position) || HasObstacle(cell, out PrototypePushBox box))
         {
             EndAction();
             return;
@@ -492,6 +489,16 @@ public sealed class PrototypePlayer : MonoBehaviour
             RefreshGates();
             Physics.SyncTransforms();
         }
+        CheckGridSupport();
+    }
+
+    private void CheckGridSupport()
+    {
+        if (HasSupport(body.position))
+            return;
+
+        fallingInGrid = true;
+        capsule.enabled = false;
     }
 
     private bool HasSupport(Vector3 position)
@@ -603,7 +610,7 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (hudText == null)
             InitializeHudStyles();
 
-        const float hudWidth = 528f;
+        const float hudWidth = 556f;
         float scale = Mathf.Min(
             Mathf.Clamp(Screen.height / 720f, 0.8f, 1.75f),
             Mathf.Min(Screen.width / (hudWidth + 32f), Screen.height / 334f));
@@ -630,16 +637,16 @@ public sealed class PrototypePlayer : MonoBehaviour
         GUI.Label(new Rect(32, 28, width - 32, 24), movement, hudText);
 
         const float y = 60;
-        DrawKey(new Rect(32, y, 42, 28), "Tab");
-        GUI.Label(new Rect(82, y + 3, 128, 24), "Switch character", hudText);
+        DrawKey(new Rect(32, y, 90, 28), "Right Shift");
+        GUI.Label(new Rect(130, y + 3, 108, 24), "Switch view", hudText);
         bool wasEnabled = GUI.enabled;
         GUI.enabled = wasEnabled && history.Count > 0;
-        if (GUI.Button(new Rect(216, y, 30, 28), "Z", undoButton))
+        if (GUI.Button(new Rect(244, y, 30, 28), "Z", undoButton))
             undoRequested = true;
         GUI.enabled = wasEnabled;
-        GUI.Label(new Rect(254, y + 3, 116, 24), "Undo last step", hudText);
-        DrawKey(new Rect(376, y, 30, 28), "R");
-        GUI.Label(new Rect(414, y + 3, 114, 24), "Restart level", hudText);
+        GUI.Label(new Rect(282, y + 3, 116, 24), "Undo last step", hudText);
+        DrawKey(new Rect(404, y, 30, 28), "R");
+        GUI.Label(new Rect(442, y + 3, 114, 24), "Restart level", hudText);
     }
 
     private void DrawKey(Rect rect, string key)
