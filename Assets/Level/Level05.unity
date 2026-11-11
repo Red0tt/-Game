@@ -339,7 +339,6 @@ MonoBehaviour:
   fallingBlocks: []
   gates:
   - {fileID: 11225}
-  levelHint: Leave the box on the plate. Jump from the far ledge.
   fallLimit: -3
   groundLayers:
     serializedVersion: 2

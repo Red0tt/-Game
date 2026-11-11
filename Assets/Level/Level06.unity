@@ -7719,7 +7719,6 @@ MonoBehaviour:
   - {fileID: 11065}
   - {fileID: 11295}
   gates: []
-  levelHint: Freeze the blocks to open a route.
   fallLimit: -5.5
   spikeBed: {fileID: 17683}
 --- !u!54 &234993278

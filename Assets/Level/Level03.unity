@@ -441,7 +441,6 @@ MonoBehaviour:
   levelExit: {fileID: 10701}
   fallingBlocks:
   - {fileID: 10875}
-  levelHint: Walk to the gap in Grid mode. Switch to 2D, jump right, then switch back on the far bank.
   fallLimit: -13
   groundLayers:
     serializedVersion: 2

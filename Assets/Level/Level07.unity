@@ -407,7 +407,6 @@ MonoBehaviour:
   gates:
   - {fileID: 11245}
   - {fileID: 11635}
-  levelHint: Match the plates to the doors.
   fallLimit: -5.5
   groundLayers:
     serializedVersion: 2

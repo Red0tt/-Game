@@ -60,7 +60,6 @@ public sealed class PrototypePlayer : MonoBehaviour
     [SerializeField] private PrototypeFallingBlock[] fallingBlocks = System.Array.Empty<PrototypeFallingBlock>();
 
     [SerializeField] private PrototypePressureGate[] gates = System.Array.Empty<PrototypePressureGate>();
-    [SerializeField] private string levelHint;
     [SerializeField] private float fallLimit = -4f;
 
     private GameObject platformPhysics;
@@ -573,25 +572,111 @@ public sealed class PrototypePlayer : MonoBehaviour
         Physics2D.SyncTransforms();
     }
 
+    private static readonly Color HudSurface = new Color32(24, 32, 39, 245);
+    private static readonly Color HudMuted = new Color32(200, 213, 219, 255);
+    private static readonly Color HudAccent = new Color32(163, 230, 192, 255);
+    private GUIStyle hudText;
+    private GUIStyle keyLabel;
+    private GUIStyle undoButton;
+    private GUIStyle completeTitle;
+    private GUIStyle nextButton;
+
+    private void InitializeHudStyles()
+    {
+        hudText = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true };
+        hudText.normal.textColor = HudMuted;
+        keyLabel = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter
+        };
+        keyLabel.normal.textColor = Color.white;
+        undoButton = new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold };
+        completeTitle = new GUIStyle(keyLabel) { fontSize = 36 };
+        completeTitle.normal.textColor = HudAccent;
+        nextButton = new GUIStyle(GUI.skin.button) { fontSize = 24, fontStyle = FontStyle.Bold };
+    }
+
     private void OnGUI()
     {
-        string controls = Mode == PlayerMode.Platform
-            ? "TOP VIEW / A D or Left Right / Space: Jump"
-            : "GRID / WASD or Arrows";
-        if (levelComplete)
-            controls = NextLevelIndex >= 0 ? "LEVEL COMPLETE!" : "ALL LEVELS COMPLETE!";
-        else if (levelExit != null)
-            controls += !string.IsNullOrEmpty(levelHint) ? "\n" + levelHint : fallingBlocks.Length == 0 ? "\nReach the green exit."
-                : "\nLet the block drop in 2D, then walk to the exit.";
-        float panelHeight = levelExit != null && !levelComplete ? 66f : 50f;
-        GUI.Box(new Rect(12, 12, 360, panelHeight), controls + "\nTab: Switch     R: Restart");
+        if (hudText == null)
+            InitializeHudStyles();
+
+        const float hudWidth = 528f;
+        float scale = Mathf.Min(
+            Mathf.Clamp(Screen.height / 720f, 0.8f, 1.75f),
+            Mathf.Min(Screen.width / (hudWidth + 32f), Screen.height / 334f));
+        Matrix4x4 previousMatrix = GUI.matrix;
+        GUI.matrix = previousMatrix * Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+        try
+        {
+            DrawControls(hudWidth);
+            if (levelComplete)
+                DrawCompletion(Screen.width / scale, Screen.height / scale);
+        }
+        finally
+        {
+            GUI.matrix = previousMatrix;
+        }
+    }
+
+    private void DrawControls(float width)
+    {
+        string movement = Mode == PlayerMode.Platform
+            ? "TOP VIEW   •   A / D or Left / Right to move   •   Space to jump"
+            : "GRID   •   WASD or Arrow keys to move";
+        DrawPanel(new Rect(16, 16, width, 84));
+        GUI.Label(new Rect(32, 28, width - 32, 24), movement, hudText);
+
+        const float y = 60;
+        DrawKey(new Rect(32, y, 42, 28), "Tab");
+        GUI.Label(new Rect(82, y + 3, 128, 24), "Switch character", hudText);
         bool wasEnabled = GUI.enabled;
         GUI.enabled = wasEnabled && history.Count > 0;
-        if (GUI.Button(new Rect(12, 18 + panelHeight, 110, 28), "Undo (Z)"))
+        if (GUI.Button(new Rect(216, y, 30, 28), "Z", undoButton))
             undoRequested = true;
         GUI.enabled = wasEnabled;
-        if (levelComplete && NextLevelIndex >= 0 &&
-            GUI.Button(new Rect(130, 18 + panelHeight, 150, 28), "Next Level (Enter)"))
-            SceneManager.LoadScene(NextLevelIndex);
+        GUI.Label(new Rect(254, y + 3, 116, 24), "Undo last step", hudText);
+        DrawKey(new Rect(376, y, 30, 28), "R");
+        GUI.Label(new Rect(414, y + 3, 114, 24), "Restart level", hudText);
+    }
+
+    private void DrawKey(Rect rect, string key)
+    {
+        DrawFill(rect, new Color32(54, 70, 80, 255));
+        GUI.Label(rect, key, keyLabel);
+    }
+
+    private void DrawCompletion(float screenWidth, float screenHeight)
+    {
+        int nextLevel = NextLevelIndex;
+        float height = nextLevel >= 0 ? 168f : 100f;
+        Rect card = new Rect((screenWidth - 480f) / 2f,
+            Mathf.Max(150f, (screenHeight - height) / 2f), 480f, height);
+        DrawPanel(card);
+        GUI.Label(new Rect(card.x, card.y + 14, card.width, 62),
+            nextLevel >= 0 ? "Level Complete!" : "All Levels Complete!", completeTitle);
+        if (nextLevel >= 0 && GUI.Button(
+            new Rect(card.x + 64, card.y + 84, card.width - 128, 60),
+            "Next Level  [Enter]", nextButton))
+            SceneManager.LoadScene(nextLevel);
+    }
+
+    private static void DrawPanel(Rect rect)
+    {
+        DrawFill(rect, HudSurface);
+        DrawFill(new Rect(rect.x, rect.y, rect.width, 3), HudAccent);
+    }
+
+    private static void DrawFill(Rect rect, Color color)
+    {
+        if (Event.current.type != EventType.Repaint)
+            return;
+
+        Color previousColor = GUI.color;
+        GUI.color = color;
+        GUI.DrawTexture(rect, Texture2D.whiteTexture);
+        GUI.color = previousColor;
     }
 }

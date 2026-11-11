@@ -322,7 +322,6 @@ MonoBehaviour:
   - {fileID: 11083}
   levelExit: {fileID: 11101}
   fallingBlocks: []
-  levelHint: Use the box as a step to reach the exit.
   fallLimit: -3
   groundLayers:
     serializedVersion: 2
