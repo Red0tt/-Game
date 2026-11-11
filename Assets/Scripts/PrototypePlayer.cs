@@ -66,6 +66,7 @@ public sealed class PrototypePlayer : MonoBehaviour
     private BoxCollider2D[] projectedBoxes;
     private Rigidbody2D platformBody;
     private CapsuleCollider2D platformShape;
+    private PhysicsMaterial2D platformPlayerMaterial;
     private BoxCollider2D[] projectedSolids;
     [SerializeField] private BoxCollider spikeBed;
     private BoxCollider2D projectedSpikeBed;
@@ -267,6 +268,13 @@ public sealed class PrototypePlayer : MonoBehaviour
         platformBody.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         platformShape = proxy.AddComponent<CapsuleCollider2D>();
         platformShape.size = new Vector2(0.64f, 0.8f);
+        // Holding movement into a wall must not create friction that cancels gravity.
+        platformPlayerMaterial = new PhysicsMaterial2D("Player Slide")
+        {
+            friction = 0f,
+            bounciness = 0f
+        };
+        platformShape.sharedMaterial = platformPlayerMaterial;
     }
 
     private Snapshot CaptureState()
@@ -439,6 +447,8 @@ public sealed class PrototypePlayer : MonoBehaviour
     {
         if (platformPhysics != null)
             Destroy(platformPhysics);
+        if (platformPlayerMaterial != null)
+            Destroy(platformPlayerMaterial);
     }
 
     private void UpdateGridMovement()
