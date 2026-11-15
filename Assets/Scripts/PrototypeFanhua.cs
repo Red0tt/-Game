@@ -280,30 +280,36 @@ internal sealed class PrototypeFanhua
 
     public void Sync()
     {
-        if (!isPlatform)
-            return;
         foreach (PrototypeFallingBlock block in blue)
-        {
-            Vector2 before = block.CurrentState.Position;
-            block.SyncFromPhysics();
-            Vector2 after = block.CurrentState.Position;
-            GameObject hit = null;
-            foreach (GameObject tile in red)
-            {
-                Vector2 target = new Vector2(tile.transform.position.x, tile.transform.position.z);
-                if (!filled.Contains(tile) && Mathf.Abs(target.x - after.x) < tile.transform.lossyScale.x * 0.5f &&
-                    before.y > target.y && after.y <= target.y &&
-                    (hit == null || tile.transform.position.z > hit.transform.position.z))
-                    hit = tile;
-            }
-            if (hit != null)
-            {
-                Fill(hit);
-                block.Plug(new Vector2(hit.transform.position.x, hit.transform.position.z));
-            }
-        }
+            SyncFallingBlock(block);
     }
 
+    public void SyncFallingBlock(PrototypeFallingBlock block)
+    {
+        if (!isPlatform)
+            return;
+
+        Vector2 before = block.CurrentState.Position;
+        block.SyncFromPhysics();
+        Vector2 after = block.CurrentState.Position;
+        if (after.y >= before.y)
+            return;
+
+        GameObject hit = null;
+        foreach (GameObject tile in red)
+        {
+            Vector3 target = tile.transform.position;
+            if (!filled.Contains(tile) && Mathf.Abs(target.x - after.x) < tile.transform.lossyScale.x * 0.5f &&
+                before.y > target.z && after.y <= target.z &&
+                (hit == null || target.z > hit.transform.position.z))
+                hit = tile;
+        }
+        if (hit != null)
+        {
+            Fill(hit);
+            block.Plug(new Vector2(hit.transform.position.x, hit.transform.position.z));
+        }
+    }
 
     public bool IsDangerous(CapsuleCollider2D player, ContactPoint2D[] contacts)
     {

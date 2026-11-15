@@ -26,4 +26,13 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Level/Level07.unity
     guid: d8b3e388fcfa4ac89b3fb8d786d45730
+  - enabled: 1
+    path: Assets/Level/Fanhua01.unity
+    guid: 3b7c30f4057d4f7c85b757d455c2e9b9
+  - enabled: 1
+    path: Assets/Level/Fanhua02.unity
+    guid: 4286e67a7b2242808fd4ef2aa75dd7ef
+  - enabled: 1
+    path: Assets/Level/Fanhua03.unity
+    guid: 6403aba892ab4a958d2fd75adb97f8b3
   m_configObjects: {}

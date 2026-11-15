@@ -507,7 +507,12 @@ public sealed class PrototypePlayer : MonoBehaviour
         {
             fanhua?.Sync();
             foreach (PrototypeFallingBlock block in fallingBlocks)
-                block.SyncFromPhysics();
+            {
+                if (fanhua == null)
+                    block.SyncFromPhysics();
+                else
+                    fanhua.SyncFallingBlock(block);
+            }
         }
     }
 
