@@ -785,6 +785,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b380243a7b3b549e4bcff567873a1e39, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  enableFanhuaTest: 1
   sideSpeed: 4
   gridStepInterval: 0.18
   jumpHeight: 1.2
@@ -1052,7 +1053,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   player: {fileID: 234993277}
   focus: {x: 0, y: 0.5, z: 0}
-  gridPitch: 45
+  gridPitch: 70
 --- !u!81 &337779850
 AudioListener:
   m_ObjectHideFlags: 0

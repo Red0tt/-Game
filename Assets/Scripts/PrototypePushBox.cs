@@ -22,9 +22,15 @@ public sealed class PrototypePushBox : MonoBehaviour
 
     public bool TryPushCell(Vector3 direction, float strength, LayerMask solidLayers)
     {
-        if (weight > strength)
+        if (weight > strength || !CanMove(shape, direction, solidLayers))
             return false;
 
+        body.position += direction;
+        return true;
+    }
+
+    internal static bool CanMove(BoxCollider shape, Vector3 direction, LayerMask solidLayers)
+    {
         Bounds bounds = shape.bounds;
         Vector3 halfExtents = bounds.extents - Vector3.one * Clearance;
         Vector3 target = bounds.center + direction;
@@ -43,7 +49,6 @@ public sealed class PrototypePushBox : MonoBehaviour
                 return false;
         }
 
-        body.position += direction;
         return true;
     }
 }
