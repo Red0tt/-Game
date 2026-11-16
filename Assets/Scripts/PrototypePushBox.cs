@@ -38,8 +38,13 @@ public sealed class PrototypePushBox : MonoBehaviour
                 solidLayers, QueryTriggerInteraction.Ignore))
             return false;
 
+        return HasFloorSupport(target, halfExtents, solidLayers);
+    }
+
+    internal static bool HasFloorSupport(Vector3 center, Vector3 halfExtents, LayerMask solidLayers)
+    {
         // All corners need support on the destination cell.
-        Vector3 bottom = target - Vector3.up * halfExtents.y;
+        Vector3 bottom = center - Vector3.up * halfExtents.y;
         for (int x = -1; x <= 1; x += 2)
         for (int z = -1; z <= 1; z += 2)
         {

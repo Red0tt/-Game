@@ -26,7 +26,12 @@ public sealed class PrototypePlayer : MonoBehaviour
     [SerializeField] private Vector2Int fanhuaAnchor = new Vector2Int(-2, -1);
     [SerializeField] private Vector2Int fanhuaGridOrigin = new Vector2Int(-5, -3);
     [SerializeField] private Vector2Int fanhuaGridSize = new Vector2Int(11, 7);
-    private PrototypeFanhua fanhua;
+    [SerializeField] private Vector2Int[] additionalFanhuaAnchors = System.Array.Empty<Vector2Int>();
+    private PrototypeFanhua[] flowers = System.Array.Empty<PrototypeFanhua>();
+    private PrototypeFanhua fanhua => flowers.Length == 0 ? null : flowers[0];
+    private int pullFlower = -1;
+
+    private bool ExitReady => exitGate == null || exitGate.IsOpen;
     private Vector2Int pullDirection;
     private bool fanhuaInteractionRequested;
     private PrototypeFallingBlock activeFallingPush;
@@ -57,7 +62,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         public Vector2 PlatformVelocity;
         public Vector3[] BoxPositions;
         public PrototypeFallingBlock.State[] FallingBlocks;
-        public PrototypeFanhua.State Fanhua;
+        public PrototypeFanhua.State[] Fanhua;
+        public int PullFlower;
         public Vector2Int PullDirection;
         public bool LevelComplete;
         public bool FallingInGrid;
@@ -101,9 +107,14 @@ public sealed class PrototypePlayer : MonoBehaviour
         body.interpolation = RigidbodyInterpolation.None;
         CreatePlatformPhysics();
         if (enableFanhuaTest)
-            fanhua = new PrototypeFanhua(transform.parent, platformPhysics.transform,
-                GetComponentInChildren<Renderer>()?.sharedMaterial,
-                fanhuaAnchor, new RectInt(fanhuaGridOrigin, fanhuaGridSize));
+        {
+            flowers = new PrototypeFanhua[1 + additionalFanhuaAnchors.Length];
+            var grid = new RectInt(fanhuaGridOrigin, fanhuaGridSize);
+            var material = GetComponentInChildren<Renderer>()?.sharedMaterial;
+            for (int i = 0; i < flowers.Length; i++)
+                flowers[i] = new PrototypeFanhua(transform.parent, platformPhysics.transform,
+                    material, i == 0 ? fanhuaAnchor : additionalFanhuaAnchors[i - 1], grid);
+        }
         SetMode(PlayerMode.Grid);
         initialState = CaptureState();
     }
@@ -203,20 +214,28 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (fanhua != null && Mode == PlayerMode.Grid && fanhuaInteractionRequested)
         {
             fanhuaInteractionRequested = false;
-            bool expanded = fanhua.EndCell != fanhua.AnchorCell;
-            var cell = new Vector2Int(Mathf.RoundToInt(body.position.x), Mathf.RoundToInt(body.position.z));
-            if (expanded || fanhua.IsBeside(cell))
+            var cell = Vector2Int.RoundToInt(new Vector2(body.position.x, body.position.z));
+            int index = System.Array.FindIndex(flowers, flower => flower.IsBeside(cell));
+            if (index < 0 && flowers.Length == 1 && fanhua.Axis != 0)
+                index = 0;
+            if (index >= 0)
             {
+                PrototypeFanhua flower = flowers[index];
                 history.Push(CaptureState());
                 EndAction();
-                if (expanded)
+                if (flower.Axis != 0)
                 {
-                    pullDirection = Vector2Int.zero;
-                    fanhua.SetEnd(fanhua.AnchorCell);
+                    if (pullFlower == index)
+                    {
+                        pullDirection = Vector2Int.zero;
+                        pullFlower = -1;
+                    }
+                    flower.SetEnd(flower.AnchorCell);
                 }
                 else
-                    fanhua.TogglePalette();
+                    flower.TogglePalette();
 
+                RefreshGates();
                 Physics.SyncTransforms();
                 return;
             }
@@ -224,7 +243,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
         if (switchRequested)
         {
-            history.Push(CaptureState());
+            Snapshot before = CaptureState();
             EndAction();
             PlayerMode nextMode = Mode == PlayerMode.Grid ? PlayerMode.Platform : PlayerMode.Grid;
             if (nextMode == PlayerMode.Grid)
@@ -233,6 +252,16 @@ public sealed class PrototypePlayer : MonoBehaviour
                 body.position = new Vector3(Mathf.Round(position.x), position.y, Mathf.Round(position.z));
             }
             SetMode(nextMode);
+            if (nextMode == PlayerMode.Grid && fanhua != null &&
+                (!fanhua.TryPlaceFallingBlocks(fallingBlocks, flowers, groundLayers,
+                    new Vector2Int((int)body.position.x, (int)body.position.z)) ||
+                 !TryResolveGridEntry()))
+            {
+                RestoreState(before);
+                return;
+            }
+
+            history.Push(before);
             if (Mode == PlayerMode.Grid)
                 CheckGridSupport();
             jumpRequested = switchRequested = false;
@@ -249,7 +278,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     private bool HasPlatformFailure()
     {
-        if (fanhua?.IsDangerous(platformShape, platformContacts) == true ||
+        if (System.Array.Exists(flowers, flower => flower.IsDangerous(platformShape, platformContacts)) ||
             platformBody.position.y < fallLimit ||
             (projectedSpikeBed != null && platformShape.IsTouching(projectedSpikeBed)))
             return true;
@@ -327,7 +356,8 @@ public sealed class PrototypePlayer : MonoBehaviour
             Position = body.position,
             PlatformVelocity = Mode == PlayerMode.Platform ? platformBody.velocity : Vector2.zero,
             BoxPositions = new Vector3[boxes.Length],
-            Fanhua = fanhua?.Capture(),
+            Fanhua = System.Array.ConvertAll(flowers, flower => flower.Capture()),
+            PullFlower = pullFlower,
             PullDirection = pullDirection,
             FallingBlocks = new PrototypeFallingBlock.State[fallingBlocks.Length],
             FallingInGrid = fallingInGrid,
@@ -343,7 +373,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     private bool MatchesInitialState(Snapshot state)
     {
-        if (fanhua != null && !fanhua.IsInitial)
+        if (System.Array.Exists(flowers, flower => !flower.IsInitial))
             return false;
         if (state.FallingInGrid || state.LevelComplete || state.Mode != initialState.Mode || state.Position != initialState.Position)
             return false;
@@ -352,7 +382,9 @@ public sealed class PrototypePlayer : MonoBehaviour
                 return false;
         for (int i = 0; i < fallingBlocks.Length; i++)
             if (state.FallingBlocks[i].Position != initialState.FallingBlocks[i].Position ||
-                state.FallingBlocks[i].Velocity != initialState.FallingBlocks[i].Velocity)
+                state.FallingBlocks[i].Velocity != initialState.FallingBlocks[i].Velocity ||
+                state.FallingBlocks[i].Lost != initialState.FallingBlocks[i].Lost ||
+                state.FallingBlocks[i].Plugged != initialState.FallingBlocks[i].Plugged)
                 return false;
         return true;
     }
@@ -362,7 +394,9 @@ public sealed class PrototypePlayer : MonoBehaviour
         EndAction();
         resetRequested = switchRequested = jumpRequested = fanhuaInteractionRequested = false;
         pullDirection = state.PullDirection;
-        fanhua?.Restore(state.Fanhua);
+        pullFlower = state.PullFlower;
+        for (int i = 0; i < flowers.Length; i++)
+            flowers[i].Restore(state.Fanhua[i]);
         waitForMoveRelease |= moveInput != Vector2.zero;
         for (int i = 0; i < boxes.Length; i++)
             boxes[i].Position = state.BoxPositions[i];
@@ -388,7 +422,7 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     private bool TryCompleteLevel()
     {
-        if (levelExit == null || (exitGate != null && !exitGate.IsOpen))
+        if (levelExit == null || !ExitReady)
             return false;
 
         Vector3 position = body.position;
@@ -409,7 +443,8 @@ public sealed class PrototypePlayer : MonoBehaviour
     private void StopPlatformPhysics()
     {
         platformBody.simulated = false;
-        fanhua?.StopPhysics();
+        foreach (PrototypeFanhua flower in flowers)
+            flower.StopPhysics();
         foreach (PrototypeFallingBlock block in fallingBlocks)
             block.StopPhysics();
     }
@@ -488,7 +523,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         previousPlatformInput = moveInput.x;
         velocity.x = moveInput.x * sideSpeed;
         platformBody.velocity = velocity;
-        fanhua?.RecordBeforePhysicsStep();
+        foreach (PrototypeFanhua flower in flowers)
+            flower.RecordBeforePhysicsStep();
         foreach (PrototypeFallingBlock block in fallingBlocks)
             block.RecordBeforePhysicsStep();
     }
@@ -505,14 +541,12 @@ public sealed class PrototypePlayer : MonoBehaviour
         body.position = new Vector3(position.x, spawnPosition.y, position.y);
         if (!levelComplete)
         {
-            fanhua?.Sync();
+            float bottomEdge = fanhua != null ? fanhua.Grid.yMin - 0.5f : fallLimit;
+            foreach (PrototypeFanhua flower in flowers)
+            foreach (PrototypeFallingBlock block in flower.BlueBlocks)
+                PrototypeFanhua.SyncFallingBlock(block, flowers, bottomEdge);
             foreach (PrototypeFallingBlock block in fallingBlocks)
-            {
-                if (fanhua == null)
-                    block.SyncFromPhysics();
-                else
-                    fanhua.SyncFallingBlock(block);
-            }
+                PrototypeFanhua.SyncFallingBlock(block, flowers, bottomEdge);
         }
     }
 
@@ -556,14 +590,16 @@ public sealed class PrototypePlayer : MonoBehaviour
 
         var step = new Vector2Int((int)direction.x, (int)direction.z);
         var currentCell = new Vector2Int(Mathf.RoundToInt(position.x), Mathf.RoundToInt(position.z));
-        bool besideTip = fanhua != null && pullDirection != Vector2Int.zero &&
-            fanhua.IsAtPullEdge(currentCell, pullDirection);
-        bool detach = pullDirection != Vector2Int.zero && (!besideTip || step != pullDirection);
-        bool pulls = fanhua != null && !detach && (pullDirection == step ||
-            (pullDirection == Vector2Int.zero && fanhua.IsAtPullEdge(currentCell, step)));
-        Vector2Int nextEnd = pulls ? fanhua.EndFor(currentCell, step) : currentCell;
-        if (pulls && (box != null || falling != null || !HasSupport(cell) ||
-            !fanhua.CanSetEnd(nextEnd, groundLayers, capsule)))
+        bool besideTip = pullFlower >= 0 && flowers[pullFlower].IsAtPullEdge(currentCell, pullDirection);
+        bool detach = pullFlower >= 0 && (!besideTip || step != pullDirection || box != null || falling != null);
+        int selected = pullFlower;
+        if (selected < 0 && box == null && falling == null)
+            selected = System.Array.FindIndex(flowers, flower => flower.IsAtPullEdge(currentCell, step));
+        bool pulls = selected >= 0 && !detach;
+        PrototypeFanhua pulled = pulls ? flowers[selected] : null;
+        Vector2Int nextEnd = pulls ? pulled.EndFor(currentCell, step) : currentCell;
+        if (pulls && (!HasSupport(cell) ||
+            !pulled.CanSetEnd(nextEnd, groundLayers, capsule)))
         {
             EndAction();
             return;
@@ -575,7 +611,7 @@ public sealed class PrototypePlayer : MonoBehaviour
             falling != activeFallingPush || direction != activeGridDirection || detach;
         Snapshot before = startsAction ? CaptureState() : null;
         if ((box != null && !box.TryPushCell(direction, pushStrength, groundLayers)) ||
-            (falling != null && !falling.TryPushCell(direction, pushStrength, groundLayers)))
+            (falling != null && !falling.TryPushCell(direction, pushStrength, groundLayers, fanhua?.Grid)))
         {
             EndAction();
             return;
@@ -589,14 +625,18 @@ public sealed class PrototypePlayer : MonoBehaviour
         activeGridDirection = direction;
         body.position = cell;
         if (detach)
+        {
             pullDirection = Vector2Int.zero;
+            pullFlower = -1;
+        }
         if (pulls)
         {
             pullDirection = step;
-            fanhua.SetEnd(nextEnd);
+            pullFlower = selected;
+            pulled.SetEnd(nextEnd);
             Physics.SyncTransforms();
         }
-        if (box != null)
+        if (box != null || pulls)
         {
             RefreshGates();
             Physics.SyncTransforms();
@@ -604,6 +644,58 @@ public sealed class PrototypePlayer : MonoBehaviour
         if (falling != null)
             Physics.SyncTransforms();
         CheckGridSupport();
+    }
+
+    private bool TryResolveGridEntry()
+    {
+        // The 2D projection omits the folded device and other grid-only walls.
+        // Exclude the player's own collider from the destination queries.
+        capsule.enabled = false;
+        Vector3 position = body.position;
+        bool found = !HasGridOverlap(position) && !IsBetweenFallingBlocks(position);
+        if (!found)
+        {
+            float bestDistance = float.PositiveInfinity;
+            foreach (Vector2Int cell in fanhua.Grid.allPositionsWithin)
+            {
+                var candidate = new Vector3(cell.x, position.y, cell.y);
+                float distance = (candidate - position).sqrMagnitude;
+                if (distance >= bestDistance || HasGridOverlap(candidate) ||
+                    !HasSupport(candidate) || IsBetweenFallingBlocks(candidate))
+                    continue;
+
+                bestDistance = distance;
+                body.position = candidate;
+                found = true;
+            }
+        }
+
+        capsule.enabled = true;
+        Physics.SyncTransforms();
+        return found;
+    }
+
+    private bool IsBetweenFallingBlocks(Vector3 position)
+    {
+        // Reserving the player's cell can still leave it squeezed between two blue blocks.
+        return HasFallingBlockAt(position + Vector3.forward) &&
+            HasFallingBlockAt(position + Vector3.back);
+    }
+
+    private bool HasFallingBlockAt(Vector3 position)
+    {
+        foreach (Collider obstacle in GridOverlaps(position))
+            if (obstacle.TryGetComponent<PrototypeFallingBlock>(out _))
+                return true;
+        return false;
+    }
+
+    private bool HasGridOverlap(Vector3 position)
+    {
+        Vector3 center = position + capsule.center;
+        Vector3 offset = Vector3.up * (capsule.height * 0.5f - capsule.radius);
+        return Physics.CheckCapsule(center - offset, center + offset,
+            capsule.radius - 0.025f, groundLayers, QueryTriggerInteraction.Ignore);
     }
 
     private void CheckGridSupport()
@@ -627,12 +719,7 @@ public sealed class PrototypePlayer : MonoBehaviour
     {
         box = null;
         falling = null;
-        Vector3 center = position + capsule.center;
-        float halfSegment = capsule.height * 0.5f - capsule.radius;
-        Vector3 offset = Vector3.up * halfSegment;
-        Collider[] overlaps = Physics.OverlapCapsule(center - offset, center + offset,
-            capsule.radius - 0.025f, groundLayers, QueryTriggerInteraction.Ignore);
-        foreach (Collider obstacle in overlaps)
+        foreach (Collider obstacle in GridOverlaps(position))
         {
             if (box != null || falling != null)
                 return true;
@@ -642,10 +729,18 @@ public sealed class PrototypePlayer : MonoBehaviour
         return false;
     }
 
+    private Collider[] GridOverlaps(Vector3 position)
+    {
+        Vector3 center = position + capsule.center;
+        Vector3 offset = Vector3.up * (capsule.height * 0.5f - capsule.radius);
+        return Physics.OverlapCapsule(center - offset, center + offset,
+            capsule.radius - 0.025f, groundLayers, QueryTriggerInteraction.Ignore);
+    }
+
     private void RefreshGates()
     {
         foreach (PrototypePressureGate gate in gates)
-            gate.Refresh(boxes);
+            gate.Refresh(boxes, flowers);
     }
 
     private static void UpdateProjection(BoxCollider source, BoxCollider2D projection)
@@ -670,7 +765,8 @@ public sealed class PrototypePlayer : MonoBehaviour
         bool platformMode = mode == PlayerMode.Platform;
         capsule.enabled = !platformMode;
         platformPhysics.SetActive(platformMode);
-        fanhua?.SetMode(platformMode);
+        foreach (PrototypeFanhua flower in flowers)
+            flower.SetMode(platformMode);
         RefreshGates();
         // Publish the final falling-block footprints before any grid collision query.
         Physics.SyncTransforms();

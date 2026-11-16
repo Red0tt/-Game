@@ -19,14 +19,12 @@ internal sealed class PrototypeFanhua
     private readonly Material material;
     private readonly List<GameObject> objects = new List<GameObject>();
     private readonly List<BoxCollider> walls = new List<BoxCollider>();
-    private readonly Dictionary<BoxCollider, PrototypeFallingBlock> blueWalls =
-        new Dictionary<BoxCollider, PrototypeFallingBlock>();
+    private readonly HashSet<BoxCollider> blueWalls = new HashSet<BoxCollider>();
     private readonly List<PrototypeFallingBlock> blue = new List<PrototypeFallingBlock>();
     private readonly List<GameObject> red = new List<GameObject>();
     private readonly HashSet<GameObject> filled = new HashSet<GameObject>();
     private Vector2Int end;
     private bool alternatePalette;
-    private bool isPlatform;
 
     public PrototypeFanhua(Transform world, Transform platform, Material material,
         Vector2Int anchor, RectInt grid)
@@ -50,6 +48,13 @@ internal sealed class PrototypeFanhua
             Filled = red.ConvertAll(tile => filled.Contains(tile)).ToArray()
         };
     }
+
+    public RectInt Grid => grid;
+    public IReadOnlyList<PrototypeFallingBlock> BlueBlocks => blue;
+    public int Axis => end == anchor ? 0 : end.y == anchor.y ? 1 : 2;
+
+    public bool PressesPlate(Vector2Int cell) =>
+        Axis != 0 && Contains(cell, end) && ColorAt(cell) == TileColor.Yellow;
 
     public Vector2Int AnchorCell => anchor;
     public Vector2Int EndCell => end;
@@ -224,7 +229,7 @@ internal sealed class PrototypeFanhua
                 var block = Tile(cell, new Color(0.08f, 0.36f, 0.97f)).AddComponent<PrototypeFallingBlock>();
                 block.CreateFootprint(platform);
                 blue.Add(block);
-                blueWalls.Add(wallCollider, block);
+                blueWalls.Add(wallCollider);
                 continue;
             }
 
@@ -238,23 +243,19 @@ internal sealed class PrototypeFanhua
             var proxy = new GameObject("Yellow footprint");
             proxy.transform.SetParent(platform, false);
             proxy.transform.position = (Vector2)cell;
-            proxy.AddComponent<BoxCollider2D>();
+            // Leave side clearance so neighboring blue blocks can fall past the yellow column.
+            // Keep the platform's full height for blue blocks and players landing on top.
+            var shape = proxy.AddComponent<BoxCollider2D>();
+            shape.size = new Vector2(0.94f, 1f);
             objects.Add(proxy);
         }
     }
 
     public void SetMode(bool platformMode)
     {
-        isPlatform = platformMode;
         foreach (BoxCollider wall in walls)
         {
-            bool showWall = !platformMode;
-            if (showWall && blueWalls.TryGetValue(wall, out PrototypeFallingBlock block))
-            {
-                Vector3 origin = wall.transform.position;
-                var originCell = new Vector2(origin.x, origin.z);
-                showWall = !block.CurrentState.Plugged && block.CurrentState.Position == originCell;
-            }
+            bool showWall = !platformMode && !blueWalls.Contains(wall);
             wall.enabled = showWall;
             wall.GetComponent<Renderer>().enabled = showWall;
         }
@@ -264,12 +265,88 @@ internal sealed class PrototypeFanhua
         // The 3D renderer is shared by both cameras. grid blue tiles are pushable.
         foreach (PrototypeFallingBlock block in blue)
         {
-            block.GetComponent<BoxCollider>().enabled = !platformMode && !block.CurrentState.Plugged;
+            block.GetComponent<BoxCollider>().enabled = !platformMode && !block.CurrentState.Plugged && !block.CurrentState.Lost;
             if (platformMode)
                 block.ResumePhysics();
             else
                 block.StopPhysics();
         }
+    }
+
+    public bool TryPlaceFallingBlocks(PrototypeFallingBlock[] sceneBlocks, PrototypeFanhua[] flowers, LayerMask solids,
+        Vector2Int playerCell)
+    {
+        var blocks = new List<PrototypeFallingBlock>();
+        foreach (PrototypeFanhua flower in flowers)
+            blocks.AddRange(flower.blue);
+        blocks.AddRange(sceneBlocks);
+        blocks.RemoveAll(block => block.CurrentState.Lost);
+        blocks.Sort((left, right) => left.CurrentState.Position.y.CompareTo(right.CurrentState.Position.y));
+
+        var occupied = new HashSet<Vector2Int> { playerCell };
+        foreach (PrototypeFallingBlock block in blocks)
+        {
+            if (block.CurrentState.Plugged)
+                occupied.Add(Vector2Int.RoundToInt(block.CurrentState.Position));
+            else
+                block.GetComponent<BoxCollider>().enabled = false;
+        }
+        Physics.SyncTransforms();
+
+        foreach (PrototypeFallingBlock block in blocks)
+        {
+            if (block.CurrentState.Plugged)
+                continue;
+
+            var state = block.CurrentState;
+            var shape = block.GetComponent<BoxCollider>();
+            Vector2Int nearest = Vector2Int.RoundToInt(state.Position);
+            Vector3 centerOffset = block.transform.TransformVector(shape.center) +
+                Vector3.up * block.transform.position.y;
+            Vector3 halfSize = Vector3.Scale(shape.size, shape.transform.lossyScale) * 0.5f -
+                Vector3.one * 0.01f;
+
+            // A block over the void must not snap back onto a floor elsewhere.
+            Vector3 nearestCenter = new Vector3(nearest.x, 0f, nearest.y) + centerOffset;
+            if (!grid.Contains(nearest) || state.Position.y < grid.yMin - 0.5f ||
+                !PrototypePushBox.HasFloorSupport(nearestCenter, halfSize, solids))
+            {
+                block.Discard();
+                continue;
+            }
+
+            // Settle stacked blocks from the bottom up, keeping their 2D column when possible.
+            int bestDistance = int.MaxValue;
+            Vector2Int destination = nearest;
+            foreach (Vector2Int cell in grid.allPositionsWithin)
+            {
+                int distance = Mathf.Abs(cell.x - nearest.x) * grid.height + Mathf.Abs(cell.y - nearest.y);
+                if (distance >= bestDistance || occupied.Contains(cell))
+                    continue;
+
+                Vector3 center = new Vector3(cell.x, 0f, cell.y) + centerOffset;
+                if (Physics.CheckBox(center, halfSize, Quaternion.identity, solids, QueryTriggerInteraction.Ignore) ||
+                    !PrototypePushBox.HasFloorSupport(center, halfSize, solids))
+                    continue;
+
+                bestDistance = distance;
+                destination = cell;
+            }
+            if (bestDistance == int.MaxValue)
+            {
+                // The caller restores the switch snapshot if the grid is full.
+                foreach (PrototypeFallingBlock sceneBlock in sceneBlocks)
+                    sceneBlock.GetComponent<BoxCollider>().enabled = !sceneBlock.CurrentState.Lost;
+                return false;
+            }
+
+            state.Position = destination;
+            block.RestoreWorldPosition(state);
+            shape.enabled = true;
+            occupied.Add(destination);
+        }
+        Physics.SyncTransforms();
+        return true;
     }
 
     private void Fill(GameObject tile)
@@ -278,37 +355,41 @@ internal sealed class PrototypeFanhua
         tile.GetComponent<Renderer>().enabled = false;
     }
 
-    public void Sync()
+    public static void SyncFallingBlock(PrototypeFallingBlock block, PrototypeFanhua[] flowers, float bottomEdge)
     {
-        foreach (PrototypeFallingBlock block in blue)
-            SyncFallingBlock(block);
-    }
-
-    public void SyncFallingBlock(PrototypeFallingBlock block)
-    {
-        if (!isPlatform)
+        if (block.CurrentState.Lost || block.CurrentState.Plugged)
             return;
 
         Vector2 before = block.CurrentState.Position;
         block.SyncFromPhysics();
         Vector2 after = block.CurrentState.Position;
         if (after.y >= before.y)
+        {
+            block.DiscardBelow(bottomEdge);
             return;
+        }
 
+        PrototypeFanhua owner = null;
         GameObject hit = null;
-        foreach (GameObject tile in red)
+        foreach (PrototypeFanhua flower in flowers)
+        foreach (GameObject tile in flower.red)
         {
             Vector3 target = tile.transform.position;
-            if (!filled.Contains(tile) && Mathf.Abs(target.x - after.x) < tile.transform.lossyScale.x * 0.5f &&
+            if (!flower.filled.Contains(tile) && Mathf.Abs(target.x - after.x) < tile.transform.lossyScale.x * 0.5f &&
                 before.y > target.z && after.y <= target.z &&
                 (hit == null || target.z > hit.transform.position.z))
+            {
+                owner = flower;
                 hit = tile;
+            }
         }
         if (hit != null)
         {
-            Fill(hit);
+            owner.Fill(hit);
             block.Plug(new Vector2(hit.transform.position.x, hit.transform.position.z));
         }
+        else
+            block.DiscardBelow(bottomEdge);
     }
 
     public bool IsDangerous(CapsuleCollider2D player, ContactPoint2D[] contacts)

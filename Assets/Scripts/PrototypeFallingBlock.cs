@@ -8,12 +8,14 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         public Vector2 Position;
         public Vector2 Velocity;
         public bool Plugged;
+        public bool Lost;
     }
 
     [SerializeField, Min(0f)] private float gravityScale = 1f;
 
     private Rigidbody2D footprint;
     private float worldHeight;
+    private float platformHalfHeight;
     private float heightBeforeStep;
     private float speedBeforeStep;
     public State CurrentState { get; private set; }
@@ -34,24 +36,34 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         footprint.gravityScale = gravityScale;
         var projectedShape = proxy.AddComponent<BoxCollider2D>();
         Vector3 size = Vector3.Scale(shape.size, transform.lossyScale);
+        platformHalfHeight = size.z * 0.5f;
         projectedShape.size = new Vector2(size.x, size.z);
     }
 
     public void SyncFromPhysics()
     {
-        if (!CurrentState.Plugged)
+        if (!CurrentState.Plugged && !CurrentState.Lost)
             RestoreWorldPosition(new State { Position = footprint.position, Velocity = footprint.velocity });
     }
 
     public void RestoreWorldPosition(State state)
     {
+        if (CurrentState.Lost != state.Lost)
+        {
+            foreach (Renderer renderer in GetComponentsInChildren<Renderer>())
+                renderer.enabled = !state.Lost;
+            GetComponent<BoxCollider>().enabled = !state.Lost;
+        }
         CurrentState = state;
         transform.position = new Vector3(state.Position.x, worldHeight, state.Position.y);
     }
 
     public void ResumePhysics()
     {
-        footprint.simulated = true;
+        footprint.simulated = !CurrentState.Lost;
+        if (CurrentState.Lost)
+            return;
+
         footprint.position = CurrentState.Position;
         footprint.velocity = CurrentState.Velocity;
         footprint.bodyType = CurrentState.Plugged ? RigidbodyType2D.Kinematic : RigidbodyType2D.Dynamic;
@@ -71,16 +83,35 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
             (speedBeforeStep < -0.01f || footprint.position.y < heightBeforeStep - 0.001f);
     }
 
-    public bool TryPushCell(Vector3 direction, float strength, LayerMask solids)
+    public bool TryPushCell(Vector3 direction, float strength, LayerMask solids, RectInt? grid)
     {
-        if (CurrentState.Plugged || strength < 1f ||
+        Vector2 target = CurrentState.Position + new Vector2(direction.x, direction.z);
+        if (CurrentState.Lost || CurrentState.Plugged || strength < 1f ||
+            (grid.HasValue && !grid.Value.Contains(Vector2Int.RoundToInt(target))) ||
             !PrototypePushBox.CanMove(GetComponent<BoxCollider>(), direction, solids))
             return false;
 
         State state = CurrentState;
-        state.Position += new Vector2(direction.x, direction.z);
+        state.Position = target;
         RestoreWorldPosition(state);
         return true;
+    }
+
+    public void DiscardBelow(float bottomEdge)
+    {
+        State state = CurrentState;
+        if (state.Plugged || state.Lost || state.Position.y + platformHalfHeight > bottomEdge)
+            return;
+
+        Discard();
+    }
+
+    public void Discard()
+    {
+        State state = CurrentState;
+        state.Lost = true;
+        RestoreWorldPosition(state);
+        StopPhysics();
     }
 
     public void Plug(Vector2 cell)
