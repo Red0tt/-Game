@@ -215,9 +215,7 @@ public sealed class PrototypePlayer : MonoBehaviour
         {
             fanhuaInteractionRequested = false;
             var cell = Vector2Int.RoundToInt(new Vector2(body.position.x, body.position.z));
-            int index = System.Array.FindIndex(flowers, flower => flower.IsBeside(cell));
-            if (index < 0 && flowers.Length == 1 && fanhua.Axis != 0)
-                index = 0;
+            int index = FindFanhuaInteractionTarget(cell);
             if (index >= 0)
             {
                 PrototypeFanhua flower = flowers[index];
@@ -827,6 +825,38 @@ public sealed class PrototypePlayer : MonoBehaviour
         Gizmos.DrawWireCube(center, new Vector3(2f, 1f, 2f));
     }
 
+    private int FindFanhuaInteractionTarget(Vector2Int cell)
+    {
+        if (pullFlower >= 0 && flowers[pullFlower].Axis != 0)
+            return pullFlower;
+
+        int foldedBeside = -1;
+        int nearestExtended = -1;
+        int nearestDistance = int.MaxValue;
+        for (int i = 0; i < flowers.Length; i++)
+        {
+            PrototypeFanhua flower = flowers[i];
+            int distance = flower.DistanceTo(cell);
+            if (flower.Axis == 0)
+            {
+                if (distance == 1 && foldedBeside < 0)
+                    foldedBeside = i;
+                continue;
+            }
+
+            if (distance == 1)
+                return i;
+
+            if (distance < nearestDistance)
+            {
+                nearestExtended = i;
+                nearestDistance = distance;
+            }
+        }
+
+        return foldedBeside >= 0 ? foldedBeside : nearestExtended;
+    }
+
     private void OnGUI()
     {
         if (hudText == null)
@@ -844,7 +874,8 @@ public sealed class PrototypePlayer : MonoBehaviour
             if (fanhua != null && !levelComplete)
                 GUI.Label(new Rect(16, 141, hudWidth, 70),
                     "Stand next to Fanhua and walk straight away to pull. Turn sideways to let go.\n" +
-                    "Stand beside folded Fanhua to change its color.  ·  " + fanhua.PaletteHint, hudText);
+                    "Stand beside folded Fanhua to change its color.  ·  " + fanhua.PaletteHint +
+                    "\nAway from Fanhua, Q folds the nearest extended one.", hudText);
             if (levelComplete)
                 DrawCompletion(Screen.width / scale, Screen.height / scale);
         }

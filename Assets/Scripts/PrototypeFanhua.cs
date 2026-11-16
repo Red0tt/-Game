@@ -100,12 +100,12 @@ internal sealed class PrototypeFanhua
         return true;
     }
 
-    public bool IsBeside(Vector2Int player)
+    public int DistanceTo(Vector2Int cell)
     {
-        foreach (Vector2Int direction in new[] { Vector2Int.left, Vector2Int.right, Vector2Int.up, Vector2Int.down })
-            if (Contains(player + direction, end) && !Contains(player, end))
-                return true;
-        return false;
+        RectInt area = Area(end);
+        int x = Mathf.Clamp(cell.x, area.xMin, area.xMax - 1);
+        int y = Mathf.Clamp(cell.y, area.yMin, area.yMax - 1);
+        return Mathf.Abs(cell.x - x) + Mathf.Abs(cell.y - y);
     }
 
     public bool IsAtPullEdge(Vector2Int player, Vector2Int step)
