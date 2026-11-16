@@ -841,10 +841,10 @@ public sealed class PrototypePlayer : MonoBehaviour
         try
         {
             DrawControls(hudWidth);
-            if (fanhua != null)
-                GUI.Label(new Rect(16, 105, hudWidth, 70),
+            if (fanhua != null && !levelComplete)
+                GUI.Label(new Rect(16, 141, hudWidth, 70),
                     "Stand next to Fanhua and walk straight away to pull. Turn sideways to let go.\n" +
-                    "Q: fold, or swap colors beside folded Fanhua / Z: undo  ·  " + fanhua.PaletteHint, hudText);
+                    "Stand beside folded Fanhua to change its color.  ·  " + fanhua.PaletteHint, hudText);
             if (levelComplete)
                 DrawCompletion(Screen.width / scale, Screen.height / scale);
         }
@@ -859,7 +859,7 @@ public sealed class PrototypePlayer : MonoBehaviour
         string movement = Mode == PlayerMode.Platform
             ? "TOP VIEW   •   A / D or Left / Right to move   •   Space to jump"
             : "GRID   •   WASD or Arrow keys to move";
-        DrawPanel(new Rect(16, 16, width, 84));
+        DrawPanel(new Rect(16, 16, width, fanhua != null ? 120 : 84));
         GUI.Label(new Rect(32, 28, width - 32, 24), movement, hudText);
 
         const float y = 60;
@@ -873,6 +873,12 @@ public sealed class PrototypePlayer : MonoBehaviour
         GUI.Label(new Rect(282, y + 3, 116, 24), "Undo last step", hudText);
         DrawKey(new Rect(404, y, 30, 28), "R");
         GUI.Label(new Rect(442, y + 3, 114, 24), "Restart level", hudText);
+
+        if (fanhua != null)
+        {
+            DrawKey(new Rect(32, 96, 30, 28), "Q");
+            GUI.Label(new Rect(70, 99, width - 70, 24), "Fold Fanhua / Change color (Grid view)", hudText);
+        }
     }
 
     private void DrawKey(Rect rect, string key)
