@@ -176,7 +176,7 @@ internal sealed class PrototypeFanhua
 
     private static Vector3 World(Vector2Int cell) => new Vector3(cell.x, 0.5f, cell.y);
 
-    private GameObject Tile(Vector2Int cell, Color color)
+    private GameObject Tile(Vector2Int cell, Color color, float mark = 0f)
     {
         GameObject tile = GameObject.CreatePrimitive(PrimitiveType.Cube);
         tile.transform.SetParent(world, false);
@@ -184,16 +184,17 @@ internal sealed class PrototypeFanhua
         var renderer = tile.GetComponent<Renderer>();
         if (material != null)
             renderer.sharedMaterial = material;
-        Tint(renderer, color);
+        Tint(renderer, color, mark);
         objects.Add(tile);
         return tile;
     }
 
-    private static void Tint(Renderer renderer, Color color)
+    private static void Tint(Renderer renderer, Color color, float mark)
     {
         var properties = new MaterialPropertyBlock();
         properties.SetColor("_Color", color);
         properties.SetColor("_BaseColor", color);
+        properties.SetFloat("_Mark", mark);
         renderer.SetPropertyBlock(properties);
     }
 
@@ -215,7 +216,7 @@ internal sealed class PrototypeFanhua
         foreach (Vector2Int cell in Footprint(end))
         {
             bool folded = end == anchor;
-            GameObject wall = Tile(cell, folded && alternatePalette ? new Color(0.58f, 0.45f, 0.67f) : Color.gray);
+            GameObject wall = Tile(cell, folded && alternatePalette ? new Color(0.63f, 0.50f, 0.67f) : new Color(0.77f, 0.67f, 0.78f));
             wall.name = folded ? "Fanhua · folded 2×2" : "Fanhua · barrier";
             wall.transform.localScale = new Vector3(0.96f, folded ? 1f : 0.8f, 0.96f);
             var wallCollider = wall.GetComponent<BoxCollider>();
@@ -226,14 +227,15 @@ internal sealed class PrototypeFanhua
             TileColor color = ColorAt(cell);
             if (color == TileColor.Blue)
             {
-                var block = Tile(cell, new Color(0.08f, 0.36f, 0.97f)).AddComponent<PrototypeFallingBlock>();
-                block.CreateFootprint(platform);
+                var block = Tile(cell, new Color(0.24f, 0.49f, 0.81f), 1f).AddComponent<PrototypeFallingBlock>();
+                block.CreateFootprint(platform, canHangInGrid: true);
                 blue.Add(block);
                 blueWalls.Add(wallCollider);
                 continue;
             }
 
-            var tile = Tile(cell, color == TileColor.Red ? Color.red : Color.yellow);
+            var tile = Tile(cell, color == TileColor.Red ? new Color(0.79f, 0.27f, 0.33f)
+                : new Color(0.98f, 0.79f, 0.30f), color == TileColor.Red ? 2f : 3f);
             tile.GetComponent<BoxCollider>().enabled = false;
             if (color == TileColor.Red)
             {
@@ -306,10 +308,10 @@ internal sealed class PrototypeFanhua
             Vector3 halfSize = Vector3.Scale(shape.size, shape.transform.lossyScale) * 0.5f -
                 Vector3.one * 0.01f;
 
-            // A block over the void must not snap back onto a floor elsewhere.
+            // Only scene blocks need floor support when returning to the grid.
             Vector3 nearestCenter = new Vector3(nearest.x, 0f, nearest.y) + centerOffset;
             if (!grid.Contains(nearest) || state.Position.y < grid.yMin - 0.5f ||
-                !PrototypePushBox.HasFloorSupport(nearestCenter, halfSize, solids))
+                (!block.CanHangInGrid && !PrototypePushBox.HasFloorSupport(nearestCenter, halfSize, solids)))
             {
                 block.Discard();
                 continue;
@@ -326,7 +328,7 @@ internal sealed class PrototypeFanhua
 
                 Vector3 center = new Vector3(cell.x, 0f, cell.y) + centerOffset;
                 if (Physics.CheckBox(center, halfSize, Quaternion.identity, solids, QueryTriggerInteraction.Ignore) ||
-                    !PrototypePushBox.HasFloorSupport(center, halfSize, solids))
+                    (!block.CanHangInGrid && !PrototypePushBox.HasFloorSupport(center, halfSize, solids)))
                     continue;
 
                 bestDistance = distance;

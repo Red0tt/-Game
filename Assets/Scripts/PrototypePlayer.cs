@@ -111,6 +111,14 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             flowers = new PrototypeFanhua[1 + additionalFanhuaAnchors.Length];
             var grid = new RectInt(fanhuaGridOrigin, fanhuaGridSize);
             var material = GetComponentInChildren<Renderer>()?.sharedMaterial;
+            foreach (var renderer in GetComponentsInChildren<Renderer>())
+            {
+                if (renderer.sharedMaterial != null && renderer.sharedMaterial.HasProperty("_Mark"))
+                {
+                    material = renderer.sharedMaterial;
+                    break;
+                }
+            }
             for (int i = 0; i < flowers.Length; i++)
                 flowers[i] = new PrototypeFanhua(transform.parent, platformPhysics.transform,
                     material, i == 0 ? fanhuaAnchor : additionalFanhuaAnchors[i - 1], grid);
@@ -795,9 +803,13 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         Physics2D.SyncTransforms();
     }
 
-    private static readonly Color HudSurface = new Color32(24, 32, 39, 245);
-    private static readonly Color HudMuted = new Color32(200, 213, 219, 255);
-    private static readonly Color HudAccent = new Color32(163, 230, 192, 255);
+    private static readonly Color HudSurface = new Color32(249, 239, 223, 255);
+    private static readonly Color HudInk = new Color32(53, 41, 64, 255);
+    private static readonly Color HudAccent = new Color32(109, 81, 119, 255);
+    private static readonly Color HudRim = new Color32(191, 156, 111, 255);
+    private static readonly Color HudKey = new Color32(226, 210, 231, 255);
+    private static readonly Color HudMint = new Color32(193, 222, 207, 255);
+    private static readonly Color HudShadow = new Color32(69, 50, 83, 80);
     private GUIStyle hudText;
     private GUIStyle keyLabel;
     private GUIStyle undoButton;
@@ -807,18 +819,18 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     private void InitializeHudStyles()
     {
         hudText = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true };
-        hudText.normal.textColor = HudMuted;
+        hudText.normal.textColor = HudInk;
         keyLabel = new GUIStyle(GUI.skin.label)
         {
             fontSize = 14,
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.MiddleCenter
         };
-        keyLabel.normal.textColor = Color.white;
-        undoButton = new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold };
+        keyLabel.normal.textColor = HudInk;
+        undoButton = new GUIStyle(keyLabel);
         completeTitle = new GUIStyle(keyLabel) { fontSize = 36 };
         completeTitle.normal.textColor = HudAccent;
-        nextButton = new GUIStyle(GUI.skin.button) { fontSize = 24, fontStyle = FontStyle.Bold };
+        nextButton = new GUIStyle(keyLabel) { fontSize = 24 };
     }
 
     private void OnDrawGizmos()
@@ -886,10 +898,13 @@ public sealed partial class PrototypePlayer : MonoBehaviour
                 DrawControls(hudWidth);
             }
             if (fanhua != null && !levelComplete)
-                GUI.Label(new Rect(16, 141, hudWidth, 70),
+            {
+                DrawPanel(new Rect(16, 145, hudWidth, 96));
+                GUI.Label(new Rect(32, 155, hudWidth - 32, 76),
                     "Stand next to Fanhua and walk straight away to pull. Turn sideways to let go.\n" +
                     "Stand beside folded Fanhua to change its color.  ·  " + fanhua.PaletteHint +
                     "\nAway from Fanhua, Q folds the nearest extended one.", hudText);
+            }
             if (levelComplete)
                 DrawCompletion(Screen.width / scale, Screen.height / scale);
         }
@@ -912,7 +927,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         GUI.Label(new Rect(130, y + 3, 108, 24), "Switch view", hudText);
         bool wasEnabled = GUI.enabled;
         GUI.enabled = wasEnabled && history.Count > 0;
-        if (GUI.Button(new Rect(244, y, 30, 28), "Z", undoButton))
+        if (DrawHudButton(new Rect(244, y, 30, 28), "Z", undoButton, HudKey))
             undoRequested = true;
         GUI.enabled = wasEnabled;
         GUI.Label(new Rect(282, y + 3, 116, 24), "Undo last step", hudText);
@@ -928,7 +943,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private void DrawKey(Rect rect, string key)
     {
-        DrawFill(rect, new Color32(54, 70, 80, 255));
+        DrawKeySurface(rect, HudKey);
         GUI.Label(rect, key, keyLabel);
     }
 
@@ -941,16 +956,35 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         DrawPanel(card);
         GUI.Label(new Rect(card.x, card.y + 14, card.width, 62),
             nextLevel >= 0 ? "Level Complete!" : "All Levels Complete!", completeTitle);
-        if (nextLevel >= 0 && GUI.Button(
+        if (nextLevel >= 0 && DrawHudButton(
             new Rect(card.x + 64, card.y + 84, card.width - 128, 60),
-            "Next Level  [Enter]", nextButton))
+            "Next Level  [Enter]", nextButton, HudMint))
             SceneManager.LoadScene(nextLevel);
     }
 
     private static void DrawPanel(Rect rect)
     {
-        DrawFill(rect, HudSurface);
-        DrawFill(new Rect(rect.x, rect.y, rect.width, 3), HudAccent);
+        DrawFill(new Rect(rect.x, rect.y + 4f, rect.width, rect.height), HudShadow);
+        DrawFill(rect, HudRim);
+        DrawFill(InsetHudRect(rect, 1f), HudSurface);
+        DrawFill(new Rect(rect.x + 1f, rect.y + 1f, rect.width - 2f, 3f), HudKey);
+    }
+
+    private static void DrawKeySurface(Rect rect, Color surface)
+    {
+        DrawFill(rect, HudAccent);
+        DrawFill(InsetHudRect(rect, 1f), surface);
+    }
+
+    private static bool DrawHudButton(Rect rect, string label, GUIStyle style, Color surface)
+    {
+        if (!GUI.enabled)
+            surface = Color.Lerp(surface, HudSurface, 0.65f);
+        else if (rect.Contains(Event.current.mousePosition))
+            surface = Color.Lerp(surface, Color.white, 0.35f);
+
+        DrawKeySurface(rect, surface);
+        return GUI.Button(rect, label, style);
     }
 
     private static void DrawFill(Rect rect, Color color)

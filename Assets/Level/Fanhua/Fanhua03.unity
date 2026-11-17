@@ -1055,7 +1055,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   player: {fileID: 234993277}
   focus: {x: 5, y: 0.5, z: 3.5}
-  gridPitch: 70
+  gridPitch: 53
+  gridYaw: 22
+  stonework: {fileID: 2100000, guid: 756ea28a20abe404a8f8786c18233d3c, type: 2}
 --- !u!81 &337779850
 AudioListener:
   m_ObjectHideFlags: 0
@@ -1074,7 +1076,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.12, g: 0.16, b: 0.21, a: 1}
+  m_BackGroundColor: {r: 0.72, g: 0.83, b: 0.79, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
