@@ -330,6 +330,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b380243a7b3b549e4bcff567873a1e39, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  showFirstLevelTutorial: 1
   sideSpeed: 2.75
   gridStepInterval: 0.18
   jumpHeight: 1.2

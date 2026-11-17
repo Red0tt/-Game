@@ -9,7 +9,7 @@ public enum PlayerMode
 }
 
 [RequireComponent(typeof(Rigidbody), typeof(CapsuleCollider))]
-public sealed class PrototypePlayer : MonoBehaviour
+public sealed partial class PrototypePlayer : MonoBehaviour
 {
     [SerializeField, Min(0.1f)] private float sideSpeed = 4f;
     [SerializeField, Min(0.05f)] private float gridStepInterval = 0.18f;
@@ -176,6 +176,7 @@ public sealed class PrototypePlayer : MonoBehaviour
             undoRequested = false;
             if (history.Count > 0)
             {
+                tutorialUndoUntil = 0f;
                 RestoreState(history.Pop());
                 return;
             }
@@ -297,6 +298,9 @@ public sealed class PrototypePlayer : MonoBehaviour
 
     private void RespawnAfterFailure()
     {
+        if (showFirstLevelTutorial)
+            tutorialUndoUntil = Time.unscaledTime + 5f;
+
         // Undo still targets the action that led to the failure.
         RestoreState(initialState);
     }
@@ -554,6 +558,8 @@ public sealed class PrototypePlayer : MonoBehaviour
             Destroy(platformPhysics);
         if (platformPlayerMaterial != null)
             Destroy(platformPlayerMaterial);
+        if (tutorialFont != null)
+            Destroy(tutorialFont);
     }
 
     private void UpdateGridMovement()
@@ -870,7 +876,15 @@ public sealed class PrototypePlayer : MonoBehaviour
         GUI.matrix = previousMatrix * Matrix4x4.Scale(new Vector3(scale, scale, 1f));
         try
         {
-            DrawControls(hudWidth);
+            if (showFirstLevelTutorial)
+            {
+                if (!levelComplete && body != null)
+                    DrawFirstLevelTutorial(Screen.width / scale, Screen.height / scale);
+            }
+            else
+            {
+                DrawControls(hudWidth);
+            }
             if (fanhua != null && !levelComplete)
                 GUI.Label(new Rect(16, 141, hudWidth, 70),
                     "Stand next to Fanhua and walk straight away to pull. Turn sideways to let go.\n" +

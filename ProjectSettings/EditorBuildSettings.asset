@@ -12,20 +12,11 @@ EditorBuildSettings:
     path: Assets/Level/Level02.unity
     guid: 59703033990f4becb2e48cae8894ef51
   - enabled: 1
-    path: Assets/Level/Level03.unity
-    guid: 7fae2497e22845d5a3baf2a9738aae7d
-  - enabled: 1
     path: Assets/Level/Level04.unity
     guid: c0d57017655d49038deb81b5e8dd2bb8
   - enabled: 1
-    path: Assets/Level/Level05.unity
-    guid: a0d8f34efa4043e580def74254c43802
-  - enabled: 1
     path: Assets/Level/Level06.unity
     guid: 4ff17db2339a4263ade042ef67d64857
-  - enabled: 1
-    path: Assets/Level/Level07.unity
-    guid: d8b3e388fcfa4ac89b3fb8d786d45730
   - enabled: 1
     path: Assets/Level/Fanhua/Fanhua01.unity
     guid: 3b7c30f4057d4f7c85b757d455c2e9b9
@@ -41,6 +32,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Level/Fanhua/Fanhua08.unity
     guid: 8a7c1f4aec8843c3ab6b071306378507
+  - enabled: 1
+    path: Assets/Level/Fanhua/Fanhua08Jump.unity
+    guid: d1ab57d53b51497c9659a856dcfd6079
   - enabled: 1
     path: Assets/Level/Fanhua/Fanhua09.unity
     guid: 2197f982d90249fc934fe16292a42377
