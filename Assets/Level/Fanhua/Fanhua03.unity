@@ -1055,9 +1055,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   player: {fileID: 234993277}
   focus: {x: 5, y: 0.5, z: 3.5}
-  gridPitch: 53
-  gridYaw: 22
-  stonework: {fileID: 2100000, guid: 756ea28a20abe404a8f8786c18233d3c, type: 2}
+  gridPitch: 70
+  gridYaw: 0
+  stonework: {fileID: 0}
 --- !u!81 &337779850
 AudioListener:
   m_ObjectHideFlags: 0

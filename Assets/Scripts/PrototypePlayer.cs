@@ -17,6 +17,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     [SerializeField] private LayerMask groundLayers;
     [SerializeField] private Transform levelExit;
     [SerializeField] private PrototypePressureGate exitGate;
+    [SerializeField] private bool requireAllGatesAtExit;
     private bool levelComplete;
 
     [SerializeField, Min(0f)] private float pushStrength = 2f;
@@ -31,7 +32,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     private PrototypeFanhua fanhua => flowers.Length == 0 ? null : flowers[0];
     private int pullFlower = -1;
 
-    private bool ExitReady => exitGate == null || exitGate.IsOpen;
+    private bool ExitReady => (exitGate == null || exitGate.IsOpen) &&
+        (!requireAllGatesAtExit || System.Array.TrueForAll(gates, gate => gate.IsOpen));
     private Vector2Int pullDirection;
     private bool fanhuaInteractionRequested;
     private PrototypeFallingBlock activeFallingPush;
@@ -42,6 +44,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     private Rigidbody body;
     private CapsuleCollider capsule;
     private Vector3 spawnPosition;
+    private RectInt gridBounds;
     private Vector2 moveInput;
     private Vector3 queuedGridDirection;
     private bool jumpRequested;
@@ -123,8 +126,10 @@ public sealed partial class PrototypePlayer : MonoBehaviour
                 flowers[i] = new PrototypeFanhua(transform.parent, platformPhysics.transform,
                     material, i == 0 ? fanhuaAnchor : additionalFanhuaAnchors[i - 1], grid);
         }
+        gridBounds = fanhua != null ? fanhua.Grid : FindSceneGridBounds();
         SetMode(PlayerMode.Grid);
         initialState = CaptureState();
+        levelEnteredAt = Time.unscaledTime;
     }
 
     private int NextLevelIndex
@@ -184,7 +189,6 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             undoRequested = false;
             if (history.Count > 0)
             {
-                tutorialUndoUntil = 0f;
                 RestoreState(history.Pop());
                 return;
             }
@@ -256,11 +260,11 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             if (nextMode == PlayerMode.Grid)
             {
                 Vector3 position = body.position;
-                body.position = new Vector3(Mathf.Round(position.x), position.y, Mathf.Round(position.z));
+                body.position = new Vector3(Mathf.Round(position.x), spawnPosition.y, Mathf.Round(position.z));
             }
             SetMode(nextMode);
-            if (nextMode == PlayerMode.Grid && fanhua != null &&
-                (!fanhua.TryPlaceFallingBlocks(fallingBlocks, flowers, groundLayers,
+            if (nextMode == PlayerMode.Grid &&
+                (!PrototypeFanhua.TryPlaceFallingBlocks(fallingBlocks, flowers, groundLayers, gridBounds,
                     new Vector2Int((int)body.position.x, (int)body.position.z)) ||
                  !TryResolveGridEntry()))
             {
@@ -306,9 +310,6 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private void RespawnAfterFailure()
     {
-        if (showFirstLevelTutorial)
-            tutorialUndoUntil = Time.unscaledTime + 5f;
-
         // Undo still targets the action that led to the failure.
         RestoreState(initialState);
     }
@@ -568,6 +569,10 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             Destroy(platformPlayerMaterial);
         if (tutorialFont != null)
             Destroy(tutorialFont);
+        if (completionFont != null)
+            Destroy(completionFont);
+        if (controlsFont != null)
+            Destroy(controlsFont);
     }
 
     private void UpdateGridMovement()
@@ -658,6 +663,22 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         CheckGridSupport();
     }
 
+    private RectInt FindSceneGridBounds()
+    {
+        // Base levels do not define a Fanhua grid. Use the authored board colliders.
+        var bounds = new Bounds(spawnPosition, Vector3.zero);
+        foreach (BoxCollider shape in FindObjectsOfType<BoxCollider>())
+        {
+            if (shape.gameObject.scene == gameObject.scene && shape.enabled && !shape.isTrigger &&
+                (groundLayers.value & (1 << shape.gameObject.layer)) != 0)
+                bounds.Encapsulate(shape.bounds);
+        }
+
+        var min = Vector2Int.CeilToInt(new Vector2(bounds.min.x, bounds.min.z));
+        var max = Vector2Int.FloorToInt(new Vector2(bounds.max.x, bounds.max.z));
+        return new RectInt(min, max - min + Vector2Int.one);
+    }
+
     private bool TryResolveGridEntry()
     {
         // The 2D projection omits the folded device and other grid-only walls.
@@ -668,7 +689,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         if (!found)
         {
             float bestDistance = float.PositiveInfinity;
-            foreach (Vector2Int cell in fanhua.Grid.allPositionsWithin)
+            foreach (Vector2Int cell in gridBounds.allPositionsWithin)
             {
                 var candidate = new Vector3(cell.x, position.y, cell.y);
                 float distance = (candidate - position).sqrMagnitude;
@@ -803,34 +824,55 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         Physics2D.SyncTransforms();
     }
 
-    private static readonly Color HudSurface = new Color32(249, 239, 223, 255);
-    private static readonly Color HudInk = new Color32(53, 41, 64, 255);
-    private static readonly Color HudAccent = new Color32(109, 81, 119, 255);
-    private static readonly Color HudRim = new Color32(191, 156, 111, 255);
+    internal static readonly Color HudSurface = new Color32(249, 239, 223, 255);
+    internal static readonly Color HudInk = new Color32(53, 41, 64, 255);
+    internal static readonly Color HudAccent = new Color32(109, 81, 119, 255);
+    internal static readonly Color HudRim = new Color32(191, 156, 111, 255);
     private static readonly Color HudKey = new Color32(226, 210, 231, 255);
-    private static readonly Color HudMint = new Color32(193, 222, 207, 255);
+    internal static readonly Color HudMint = new Color32(193, 222, 207, 255);
     private static readonly Color HudShadow = new Color32(69, 50, 83, 80);
-    private GUIStyle hudText;
-    private GUIStyle keyLabel;
-    private GUIStyle undoButton;
+    private static readonly (string Key, string Action)[] ControlHints =
+    {
+        ("WASD", "移动"),
+        ("Space", "跳跃"),
+        ("右 Shift", "切换形态"),
+        ("Z", "撤回操作"),
+        ("R", "重置关卡"),
+        ("Q", "翻转／收拢翻花")
+    };
+
+    private Font completionFont;
+    private Font controlsFont;
+    private GUIStyle controlKey;
+    private GUIStyle controlAction;
     private GUIStyle completeTitle;
     private GUIStyle nextButton;
 
     private void InitializeHudStyles()
     {
-        hudText = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true };
-        hudText.normal.textColor = HudInk;
-        keyLabel = new GUIStyle(GUI.skin.label)
+        completionFont = Font.CreateDynamicFontFromOSFont(
+            new[] { "Baskerville", "Georgia", "Cambria", "Liberation Serif" }, 38);
+        completeTitle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 14,
-            fontStyle = FontStyle.Bold,
+            font = completionFont,
+            fontSize = 38,
             alignment = TextAnchor.MiddleCenter
         };
-        keyLabel.normal.textColor = HudInk;
-        undoButton = new GUIStyle(keyLabel);
-        completeTitle = new GUIStyle(keyLabel) { fontSize = 36 };
-        completeTitle.normal.textColor = HudAccent;
-        nextButton = new GUIStyle(keyLabel) { fontSize = 24 };
+        completeTitle.normal.textColor = HudInk;
+        completeTitle.hover.textColor = HudInk;
+        completeTitle.active.textColor = HudInk;
+        completeTitle.focused.textColor = HudInk;
+        nextButton = CreateHudButtonStyle(completeTitle, 24);
+
+        controlsFont = CreateChineseHudFont(16);
+        controlAction = new GUIStyle(GUI.skin.label)
+        {
+            font = controlsFont,
+            fontSize = 16,
+            alignment = TextAnchor.MiddleLeft
+        };
+        controlAction.normal.textColor = HudInk;
+        controlKey = new GUIStyle(controlAction) { alignment = TextAnchor.MiddleCenter };
     }
 
     private void OnDrawGizmos()
@@ -877,7 +919,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private void OnGUI()
     {
-        if (hudText == null)
+        if (completeTitle == null)
             InitializeHudStyles();
 
         const float hudWidth = 556f;
@@ -888,25 +930,14 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         GUI.matrix = previousMatrix * Matrix4x4.Scale(new Vector3(scale, scale, 1f));
         try
         {
-            if (showFirstLevelTutorial)
-            {
-                if (!levelComplete && body != null)
-                    DrawFirstLevelTutorial(Screen.width / scale, Screen.height / scale);
-            }
-            else
-            {
-                DrawControls(hudWidth);
-            }
-            if (fanhua != null && !levelComplete)
-            {
-                DrawPanel(new Rect(16, 145, hudWidth, 96));
-                GUI.Label(new Rect(32, 155, hudWidth - 32, 76),
-                    "Stand next to Fanhua and walk straight away to pull. Turn sideways to let go.\n" +
-                    "Stand beside folded Fanhua to change its color.  ·  " + fanhua.PaletteHint +
-                    "\nAway from Fanhua, Q folds the nearest extended one.", hudText);
-            }
             if (levelComplete)
                 DrawCompletion(Screen.width / scale, Screen.height / scale);
+            else
+            {
+                DrawControlHints();
+                if (body != null)
+                    DrawTutorial(Screen.width / scale, Screen.height / scale);
+            }
         }
         finally
         {
@@ -914,37 +945,22 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         }
     }
 
-    private void DrawControls(float width)
+    private void DrawControlHints()
     {
-        string movement = Mode == PlayerMode.Platform
-            ? "TOP VIEW   •   A / D or Left / Right to move   •   Space to jump"
-            : "GRID   •   WASD or Arrow keys to move";
-        DrawPanel(new Rect(16, 16, width, fanhua != null ? 120 : 84));
-        GUI.Label(new Rect(32, 28, width - 32, 24), movement, hudText);
+        if (Event.current.type != EventType.Repaint)
+            return;
 
-        const float y = 60;
-        DrawKey(new Rect(32, y, 90, 28), "Right Shift");
-        GUI.Label(new Rect(130, y + 3, 108, 24), "Switch view", hudText);
-        bool wasEnabled = GUI.enabled;
-        GUI.enabled = wasEnabled && history.Count > 0;
-        if (DrawHudButton(new Rect(244, y, 30, 28), "Z", undoButton, HudKey))
-            undoRequested = true;
-        GUI.enabled = wasEnabled;
-        GUI.Label(new Rect(282, y + 3, 116, 24), "Undo last step", hudText);
-        DrawKey(new Rect(404, y, 30, 28), "R");
-        GUI.Label(new Rect(442, y + 3, 114, 24), "Restart level", hudText);
-
-        if (fanhua != null)
+        const float rowHeight = 24f;
+        var panel = new Rect(12f, 12f, 198f, ControlHints.Length * rowHeight + 12f);
+        DrawFill(panel, new Color(HudSurface.r, HudSurface.g, HudSurface.b, 0.48f));
+        for (int i = 0; i < ControlHints.Length; i++)
         {
-            DrawKey(new Rect(32, 96, 30, 28), "Q");
-            GUI.Label(new Rect(70, 99, width - 70, 24), "Fold Fanhua / Change color (Grid view)", hudText);
+            float y = panel.y + 6f + i * rowHeight;
+            var key = new Rect(panel.x + 7f, y + 2f, 62f, 20f);
+            DrawFill(key, new Color(HudKey.r, HudKey.g, HudKey.b, 0.58f));
+            GUI.Label(key, ControlHints[i].Key, controlKey);
+            GUI.Label(new Rect(panel.x + 79f, y, 115f, rowHeight), ControlHints[i].Action, controlAction);
         }
-    }
-
-    private void DrawKey(Rect rect, string key)
-    {
-        DrawKeySurface(rect, HudKey);
-        GUI.Label(rect, key, keyLabel);
     }
 
     private void DrawCompletion(float screenWidth, float screenHeight)
@@ -962,7 +978,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             SceneManager.LoadScene(nextLevel);
     }
 
-    private static void DrawPanel(Rect rect)
+    internal static void DrawPanel(Rect rect)
     {
         DrawFill(new Rect(rect.x, rect.y + 4f, rect.width, rect.height), HudShadow);
         DrawFill(rect, HudRim);
@@ -976,18 +992,29 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         DrawFill(InsetHudRect(rect, 1f), surface);
     }
 
-    private static bool DrawHudButton(Rect rect, string label, GUIStyle style, Color surface)
+    internal static GUIStyle CreateHudButtonStyle(GUIStyle source, int fontSize)
+    {
+        var style = new GUIStyle(source) { fontSize = fontSize };
+        Color interactionInk = Color.Lerp(HudInk, Color.black, 0.5f);
+        style.normal.textColor = HudInk;
+        style.hover.textColor = interactionInk;
+        style.active.textColor = interactionInk;
+        style.focused.textColor = interactionInk;
+        return style;
+    }
+
+    internal static bool DrawHudButton(Rect rect, string label, GUIStyle style, Color surface)
     {
         if (!GUI.enabled)
             surface = Color.Lerp(surface, HudSurface, 0.65f);
         else if (rect.Contains(Event.current.mousePosition))
-            surface = Color.Lerp(surface, Color.white, 0.35f);
+            surface = Color.Lerp(surface, HudInk, 0.12f);
 
         DrawKeySurface(rect, surface);
         return GUI.Button(rect, label, style);
     }
 
-    private static void DrawFill(Rect rect, Color color)
+    internal static void DrawFill(Rect rect, Color color)
     {
         if (Event.current.type != EventType.Repaint)
             return;

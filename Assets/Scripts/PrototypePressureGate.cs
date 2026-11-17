@@ -17,6 +17,8 @@ public sealed class PrototypePressureGate : MonoBehaviour
         bool boxPressed = false;
         foreach (PrototypePushBox box in boxes)
         {
+            if (plate == null)
+                break;
             Vector3 offset = box.Position - plate.position;
             if (Mathf.Abs(offset.x) < 0.15f && Mathf.Abs(offset.z) < 0.15f)
             {
@@ -30,11 +32,12 @@ public sealed class PrototypePressureGate : MonoBehaviour
             var cell = Vector2Int.RoundToInt(new Vector2(flowerPlate.position.x, flowerPlate.position.z));
             flowerPressed = System.Array.Exists(flowers, flower => flower.PressesPlate(cell));
         }
-        bool open = boxPressed && (flowerPlate == null || flowerPressed);
+        bool open = plate == null ? flowerPressed : boxPressed && (flowerPlate == null || flowerPressed);
         door.enabled = !open;
         doorVisual.enabled = !open;
 
-        UpdatePlateVisual(plate, boxPressed);
+        if (plate != null)
+            UpdatePlateVisual(plate, boxPressed);
         if (flowerPlate != null)
             UpdatePlateVisual(flowerPlate, flowerPressed);
     }

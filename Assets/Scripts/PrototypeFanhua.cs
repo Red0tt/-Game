@@ -275,8 +275,8 @@ internal sealed class PrototypeFanhua
         }
     }
 
-    public bool TryPlaceFallingBlocks(PrototypeFallingBlock[] sceneBlocks, PrototypeFanhua[] flowers, LayerMask solids,
-        Vector2Int playerCell)
+    public static bool TryPlaceFallingBlocks(PrototypeFallingBlock[] sceneBlocks, PrototypeFanhua[] flowers,
+        LayerMask solids, RectInt grid, Vector2Int playerCell)
     {
         var blocks = new List<PrototypeFallingBlock>();
         foreach (PrototypeFanhua flower in flowers)
