@@ -22,23 +22,28 @@ public sealed class PrototypePushBox : MonoBehaviour
 
     public bool TryPushCell(Vector3 direction, float strength, LayerMask solidLayers)
     {
-        if (weight > strength || !CanMove(shape, direction, solidLayers))
+        if (weight > strength ||
+            !TryGetPushDestination(shape, direction, solidLayers, out bool supported) || !supported)
             return false;
 
         body.position += direction;
         return true;
     }
 
-    internal static bool CanMove(BoxCollider shape, Vector3 direction, LayerMask solidLayers)
+    internal static bool TryGetPushDestination(BoxCollider shape, Vector3 direction, LayerMask solidLayers,
+        out bool supported)
     {
         Bounds bounds = shape.bounds;
         Vector3 halfExtents = bounds.extents - Vector3.one * Clearance;
         Vector3 target = bounds.center + direction;
+        // An occupied destination blocks the push. Never push a chain of blocks.
+        supported = false;
         if (Physics.CheckBox(target, halfExtents, Quaternion.identity,
                 solidLayers, QueryTriggerInteraction.Ignore))
             return false;
 
-        return HasFloorSupport(target, halfExtents, solidLayers);
+        supported = HasFloorSupport(target, halfExtents, solidLayers);
+        return true;
     }
 
     internal static bool HasFloorSupport(Vector3 center, Vector3 halfExtents, LayerMask solidLayers)

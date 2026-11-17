@@ -19,11 +19,13 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     private float heightBeforeStep;
     private float speedBeforeStep;
     public State CurrentState { get; private set; }
+    public bool CanHangInGrid { get; private set; }
 
-    public void CreateFootprint(Transform parent)
+    public void CreateFootprint(Transform parent, bool canHangInGrid = false)
     {
         // The level places each block as a centered, axis-aligned box.
         BoxCollider shape = GetComponent<BoxCollider>();
+        CanHangInGrid = canHangInGrid;
         worldHeight = transform.position.y;
         CurrentState = new State { Position = new Vector2(transform.position.x, transform.position.z) };
 
@@ -87,8 +89,9 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     {
         Vector2 target = CurrentState.Position + new Vector2(direction.x, direction.z);
         if (CurrentState.Lost || CurrentState.Plugged || strength < 1f ||
-            (grid.HasValue && !grid.Value.Contains(Vector2Int.RoundToInt(target))) ||
-            !PrototypePushBox.CanMove(GetComponent<BoxCollider>(), direction, solids))
+            !PrototypePushBox.TryGetPushDestination(GetComponent<BoxCollider>(), direction, solids, out bool supported) ||
+            (!supported && !CanHangInGrid) ||
+            (grid.HasValue && !grid.Value.Contains(Vector2Int.RoundToInt(target))))
             return false;
 
         State state = CurrentState;
