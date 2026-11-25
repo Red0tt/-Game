@@ -9,6 +9,15 @@
 /[Mm]emoryCaptures/
 /[Rr]ecordings/
 
+# Unity-generated files in the Mint Court review project
+/ArtReview/MintCourt-Unity/[Ll]ibrary/
+/ArtReview/MintCourt-Unity/[Tt]emp/
+/ArtReview/MintCourt-Unity/[Oo]bj/
+/ArtReview/MintCourt-Unity/[Ll]ogs/
+/ArtReview/MintCourt-Unity/[Uu]ser[Ss]ettings/
+/ArtReview/MintCourt-Unity/[Bb]uild/
+/ArtReview/MintCourt-Unity/[Bb]uilds/
+
 # Rider and other IDE-generated files
 /.idea/
 /.vs/

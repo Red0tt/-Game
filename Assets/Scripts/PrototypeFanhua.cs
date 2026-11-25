@@ -22,6 +22,7 @@ internal sealed class PrototypeFanhua
     private readonly HashSet<BoxCollider> blueWalls = new HashSet<BoxCollider>();
     private readonly List<PrototypeFallingBlock> blue = new List<PrototypeFallingBlock>();
     private readonly List<GameObject> red = new List<GameObject>();
+    private readonly Dictionary<GameObject,BoxCollider2D> redProjections = new Dictionary<GameObject,BoxCollider2D>();
     private readonly HashSet<GameObject> filled = new HashSet<GameObject>();
     private Vector2Int end;
     private bool alternatePalette;
@@ -49,6 +50,21 @@ internal sealed class PrototypeFanhua
         };
     }
 
+    public IEnumerable<Vector2Int> YellowCells
+    {
+        get { if (Axis != 0) foreach (var cell in Footprint(end))
+            if (ColorAt(cell) == TileColor.Yellow) yield return cell; }
+    }
+    public IEnumerable<Vector2Int> FireCells
+    {
+        get { foreach(var tile in red) yield return new Vector2Int(Mathf.RoundToInt(tile.transform.position.x),Mathf.RoundToInt(tile.transform.position.z)); }
+    }
+    public void CoolCell(Vector2Int cell)
+    {
+        foreach(var tile in red)
+            if(Mathf.RoundToInt(tile.transform.position.x)==cell.x && Mathf.RoundToInt(tile.transform.position.z)==cell.y && !filled.Contains(tile)) Fill(tile);
+    }
+    public bool WaterRules => world.GetComponentInChildren<PrototypeWaterLevel>() != null;
     public RectInt Grid => grid;
     public IReadOnlyList<PrototypeFallingBlock> BlueBlocks => blue;
     public int Axis => end == anchor ? 0 : end.y == anchor.y ? 1 : 2;
@@ -212,6 +228,7 @@ internal sealed class PrototypeFanhua
         blueWalls.Clear();
         blue.Clear();
         red.Clear();
+        redProjections.Clear();
         filled.Clear();
         foreach (Vector2Int cell in Footprint(end))
         {
@@ -240,6 +257,13 @@ internal sealed class PrototypeFanhua
             if (color == TileColor.Red)
             {
                 red.Add(tile);
+                if(WaterRules)
+                {
+                    var redProxy = new GameObject("Unit02 red footprint");
+                    redProxy.transform.SetParent(platform,false); redProxy.transform.position=(Vector2)cell;
+                    var redShape=redProxy.AddComponent<BoxCollider2D>(); redShape.size=Vector2.one; redShape.isTrigger=true;
+                    redProjections[tile]=redShape; objects.Add(redProxy);
+                }
                 continue;
             }
             var proxy = new GameObject("Yellow footprint");
@@ -262,7 +286,7 @@ internal sealed class PrototypeFanhua
             wall.GetComponent<Renderer>().enabled = showWall;
         }
         foreach (GameObject tile in red)
-            tile.GetComponent<Renderer>().enabled = !filled.Contains(tile);
+            tile.GetComponent<Renderer>().enabled = WaterRules || !filled.Contains(tile);
 
         // The 3D renderer is shared by both cameras. grid blue tiles are pushable.
         foreach (PrototypeFallingBlock block in blue)
@@ -354,7 +378,12 @@ internal sealed class PrototypeFanhua
     private void Fill(GameObject tile)
     {
         filled.Add(tile);
-        tile.GetComponent<Renderer>().enabled = false;
+        tile.GetComponent<Renderer>().enabled = WaterRules;
+        if (WaterRules)
+        {
+            Tint(tile.GetComponent<Renderer>(), Color.gray, 0f);
+            if(redProjections.TryGetValue(tile,out var projection)) projection.isTrigger=false;
+        }
     }
 
     public static void SyncFallingBlock(PrototypeFallingBlock block, PrototypeFanhua[] flowers, float bottomEdge)
@@ -389,6 +418,7 @@ internal sealed class PrototypeFanhua
         {
             owner.Fill(hit);
             block.Plug(new Vector2(hit.transform.position.x, hit.transform.position.z));
+            if (owner.WaterRules) Tint(block.GetComponent<Renderer>(), Color.gray, 0f);
         }
         else
             block.DiscardBelow(bottomEdge);

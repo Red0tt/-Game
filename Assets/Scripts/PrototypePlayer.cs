@@ -19,6 +19,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     [SerializeField] private PrototypePressureGate exitGate;
     [SerializeField] private bool requireAllGatesAtExit;
     private bool levelComplete;
+    private PrototypeWaterLevel waterLevel;
 
     [SerializeField, Min(0f)] private float pushStrength = 2f;
 
@@ -69,8 +70,10 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         public int PullFlower;
         public Vector2Int PullDirection;
         public bool LevelComplete;
+        public PrototypeWaterLevel.State Water;
         public bool FallingInGrid;
         public float GridFallSpeed;
+        public int PracticedFanhuaDirections;
     }
 
     private readonly Stack<Snapshot> history = new Stack<Snapshot>();
@@ -97,10 +100,20 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     private BoxCollider2D projectedSpikeBed;
     private readonly ContactPoint2D[] platformContacts = new ContactPoint2D[8];
 
+    internal PrototypeFallingBlock[] WaterSceneBlocks => fallingBlocks;
+    internal BoxCollider[] WaterStaticSolids => platformSolids;
+    internal RectInt WaterGrid => gridBounds;
+    internal void RefreshWaterProjections()
+    {
+        if(projectedSolids==null) return;
+        for(int i=0;i<platformSolids.Length;i++)
+            if(projectedSolids[i]!=null) UpdateProjection(platformSolids[i],projectedSolids[i]);
+    }
     public PlayerMode Mode { get; private set; }
 
     private void Start()
     {
+        waterLevel = GetComponent<PrototypeWaterLevel>();
         body = GetComponent<Rigidbody>();
         capsule = GetComponent<CapsuleCollider>();
         spawnPosition = body.position;
@@ -109,6 +122,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         body.useGravity = false;
         body.interpolation = RigidbodyInterpolation.None;
         CreatePlatformPhysics();
+        if (waterLevel != null) waterLevel.Initialize(platformPhysics.transform);
         if (enableFanhuaTest)
         {
             flowers = new PrototypeFanhua[1 + additionalFanhuaAnchors.Length];
@@ -171,7 +185,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         if (fanhua != null && Mode == PlayerMode.Grid)
             fanhuaInteractionRequested |= Input.GetKeyDown(KeyCode.Q);
         jumpRequested |= Input.GetKeyDown(KeyCode.Space);
-        switchRequested |= Input.GetKeyDown(KeyCode.RightShift);
+        if (!teachFanhuaDirections)
+            switchRequested |= Input.GetKeyDown(KeyCode.RightShift);
         resetRequested |= Input.GetKeyDown(KeyCode.R);
         undoRequested |= Input.GetKeyDown(KeyCode.Z);
     }
@@ -180,6 +195,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     {
         if (Mode == PlayerMode.Platform)
         {
+            if (waterLevel != null && !levelComplete && !undoRequested && !resetRequested) waterLevel.Advance(Time.fixedDeltaTime, flowers);
             CopyPlatformPosition();
             FinishPlatformStep();
         }
@@ -229,7 +245,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             fanhuaInteractionRequested = false;
             var cell = Vector2Int.RoundToInt(new Vector2(body.position.x, body.position.z));
             int index = FindFanhuaInteractionTarget(cell);
-            if (index >= 0)
+            if (index >= 0 && (waterLevel == null || waterLevel.CanEditFlower(index)))
             {
                 PrototypeFanhua flower = flowers[index];
                 history.Push(CaptureState());
@@ -254,28 +270,54 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
         if (switchRequested)
         {
+            // Consume the edge even when entry is rejected. Otherwise every fixed frame
+            // retries the same invalid transition instead of processing swimming input.
+            switchRequested = false;
             Snapshot before = CaptureState();
-            EndAction();
             PlayerMode nextMode = Mode == PlayerMode.Grid ? PlayerMode.Platform : PlayerMode.Grid;
             if (nextMode == PlayerMode.Grid)
             {
                 Vector3 position = body.position;
                 body.position = new Vector3(Mathf.Round(position.x), spawnPosition.y, Mathf.Round(position.z));
+                if (waterLevel != null && !HasSupport(body.position))
+                {
+                    body.position = position;
+                    waterLevel.RejectReturn(false);
+                    jumpRequested = false;
+                    return;
+                }
             }
+            EndAction();
             SetMode(nextMode);
-            if (nextMode == PlayerMode.Grid &&
-                (!PrototypeFanhua.TryPlaceFallingBlocks(fallingBlocks, flowers, groundLayers, gridBounds,
-                    new Vector2Int((int)body.position.x, (int)body.position.z)) ||
-                 !TryResolveGridEntry()))
+            bool entryValid = true;
+            if (nextMode == PlayerMode.Grid)
+            {
+                var cell = new Vector2Int((int)body.position.x, (int)body.position.z);
+                if (waterLevel != null)
+                {
+                    // No nearest-cell relocation for water or for the player.
+                    capsule.enabled = false;
+                    entryValid = waterLevel.TryMapBlocksToGrid(fallingBlocks, flowers, groundLayers, gridBounds, cell)
+                        && HasSupport(body.position) && !HasGridOverlap(body.position);
+                    capsule.enabled = true;
+                }
+                else
+                    entryValid = PrototypeFanhua.TryPlaceFallingBlocks(fallingBlocks, flowers, groundLayers, gridBounds, cell)
+                        && TryResolveGridEntry();
+            }
+            if (!entryValid)
             {
                 RestoreState(before);
+                // A rejected request must not require releasing held swim keys.
+                waitForMoveRelease = false;
+                if (waterLevel != null) waterLevel.RejectReturn(true);
                 return;
             }
 
             history.Push(before);
             if (Mode == PlayerMode.Grid)
                 CheckGridSupport();
-            jumpRequested = switchRequested = false;
+            jumpRequested = false;
             return;
         }
 
@@ -289,7 +331,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private bool HasPlatformFailure()
     {
-        if (System.Array.Exists(flowers, flower => flower.IsDangerous(platformShape, platformContacts)) ||
+        if ((waterLevel != null && waterLevel.IsDangerous(platformShape.bounds)) ||
+            System.Array.Exists(flowers, flower => flower.IsDangerous(platformShape, platformContacts)) ||
             platformBody.position.y < fallLimit ||
             (projectedSpikeBed != null && platformShape.IsTouching(projectedSpikeBed)))
             return true;
@@ -373,6 +416,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             FallingBlocks = new PrototypeFallingBlock.State[fallingBlocks.Length],
             FallingInGrid = fallingInGrid,
             GridFallSpeed = gridFallSpeed,
+            PracticedFanhuaDirections = practicedFanhuaDirections,
+            Water = waterLevel != null ? waterLevel.Capture() : null,
             LevelComplete = levelComplete
         };
         for (int i = 0; i < boxes.Length; i++)
@@ -384,7 +429,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private bool MatchesInitialState(Snapshot state)
     {
-        if (System.Array.Exists(flowers, flower => !flower.IsInitial))
+        if (waterLevel != null && state.Water != null && state.Water.Fluid != null) return false;
+        if (state.PracticedFanhuaDirections != 0 || System.Array.Exists(flowers, flower => !flower.IsInitial))
             return false;
         if (state.FallingInGrid || state.LevelComplete || state.Mode != initialState.Mode || state.Position != initialState.Position)
             return false;
@@ -404,6 +450,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     {
         EndAction();
         resetRequested = switchRequested = jumpRequested = fanhuaInteractionRequested = false;
+        practicedFanhuaDirections = state.PracticedFanhuaDirections;
         pullDirection = state.PullDirection;
         pullFlower = state.PullFlower;
         for (int i = 0; i < flowers.Length; i++)
@@ -415,6 +462,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         for (int i = 0; i < fallingBlocks.Length; i++)
             fallingBlocks[i].RestoreWorldPosition(state.FallingBlocks[i]);
 
+        if (waterLevel != null) waterLevel.Restore(state.Water);
         body.position = state.Position;
         Physics.SyncTransforms();
         SetMode(state.Mode);
@@ -508,6 +556,14 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private void UpdatePlatformMovement()
     {
+        if (waterLevel != null && waterLevel.Swim(platformBody, moveInput, jumpRequested))
+        {
+            if (activeAction == ActionKind.None) history.Push(CaptureState());
+            activeAction = ActionKind.Air;
+            platformXBeforeStep = platformBody.position.x;
+            return;
+        }
+        platformBody.gravityScale = 1f;
         Vector2 velocity = platformBody.velocity;
         if (jumpRequested && IsPlatformGrounded())
         {
@@ -552,6 +608,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         body.position = new Vector3(position.x, spawnPosition.y, position.y);
         if (!levelComplete)
         {
+            if (waterLevel != null) { waterLevel.Step(platformBody, flowers); return; }
             float bottomEdge = fanhua != null ? fanhua.Grid.yMin - 0.5f : fallLimit;
             foreach (PrototypeFanhua flower in flowers)
             foreach (PrototypeFallingBlock block in flower.BlueBlocks)
@@ -615,6 +672,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         bool pulls = selected >= 0 && !detach;
         PrototypeFanhua pulled = pulls ? flowers[selected] : null;
         Vector2Int nextEnd = pulls ? pulled.EndFor(currentCell, step) : currentCell;
+        if (pulls && waterLevel != null && !waterLevel.CanEditFlower(selected))
+        { EndAction(); return; }
         if (pulls && (!HasSupport(cell) ||
             !pulled.CanSetEnd(nextEnd, groundLayers, capsule)))
         {
@@ -651,6 +710,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             pullDirection = step;
             pullFlower = selected;
             pulled.SetEnd(nextEnd);
+            if (teachFanhuaDirections)
+                RecordFanhuaDirection(step);
             Physics.SyncTransforms();
         }
         if (box != null || pulls)
@@ -800,6 +861,13 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         platformPhysics.SetActive(platformMode);
         foreach (PrototypeFanhua flower in flowers)
             flower.SetMode(platformMode);
+        if (waterLevel != null)
+        {
+            waterLevel.SetMode(platformMode);
+            foreach (var flower in flowers)
+                foreach (var block in flower.BlueBlocks) block.SetWaterView(platformMode);
+            foreach (var block in fallingBlocks) block.SetWaterView(platformMode);
+        }
         RefreshGates();
         // Publish the final falling-block footprints before any grid collision query.
         Physics.SyncTransforms();
@@ -821,6 +889,9 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         platformBody.velocity = Vector2.zero;
         foreach (PrototypeFallingBlock block in fallingBlocks)
             block.ResumePhysics();
+        // Re-apply fluid collision pairs before the first simulation after a mode
+        // change; disabling the physics root clears IgnoreCollision pairs.
+        if (waterLevel != null) waterLevel.Step(platformBody, flowers);
         Physics2D.SyncTransforms();
     }
 
@@ -951,15 +1022,20 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             return;
 
         const float rowHeight = 24f;
-        var panel = new Rect(12f, 12f, 198f, ControlHints.Length * rowHeight + 12f);
+        int rowCount = ControlHints.Length - (teachFanhuaDirections ? 2 : 0);
+        var panel = new Rect(12f, 12f, 198f, rowCount * rowHeight + 12f);
         DrawFill(panel, new Color(HudSurface.r, HudSurface.g, HudSurface.b, 0.48f));
-        for (int i = 0; i < ControlHints.Length; i++)
+        int row = 0;
+        foreach (var hint in ControlHints)
         {
-            float y = panel.y + 6f + i * rowHeight;
+            if (teachFanhuaDirections && (hint.Key == "Space" || hint.Key == "右 Shift"))
+                continue;
+
+            float y = panel.y + 6f + row++ * rowHeight;
             var key = new Rect(panel.x + 7f, y + 2f, 62f, 20f);
             DrawFill(key, new Color(HudKey.r, HudKey.g, HudKey.b, 0.58f));
-            GUI.Label(key, ControlHints[i].Key, controlKey);
-            GUI.Label(new Rect(panel.x + 79f, y, 115f, rowHeight), ControlHints[i].Action, controlAction);
+            GUI.Label(key, hint.Key, controlKey);
+            GUI.Label(new Rect(panel.x + 79f, y, 115f, rowHeight), hint.Action, controlAction);
         }
     }
 

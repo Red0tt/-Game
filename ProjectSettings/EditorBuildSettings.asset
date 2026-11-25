@@ -38,4 +38,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Level/Fanhua/Fanhua09.unity
     guid: 2197f982d90249fc934fe16292a42377
+  - enabled: 1
+    path: Assets/Level/Unit02/Unit02Water01.unity
+    guid: fa39a6647b8be4f32a2f36b954552443
   m_configObjects: {}
