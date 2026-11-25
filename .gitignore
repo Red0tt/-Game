@@ -30,3 +30,7 @@
 
 # macOS
 .DS_Store
+
+# Local review projects, backups and launch helper
+/ArtReview/
+/打开 MintCourt-Unity.command
