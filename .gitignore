@@ -21,3 +21,18 @@
 
 # macOS
 .DS_Store
+
+# Local art review copies and generated preview archives
+/ArtReview/
+
+# Unfinished water experiments (local only)
+/Assets/Editor/
+/Assets/Editor.meta
+/Assets/Level/Unit02/
+/Assets/Level/Unit02.meta
+/Assets/Scripts/PrototypeWaterLevel.cs
+/Assets/Scripts/PrototypeWaterLevel.cs.meta
+/Assets/Scripts/Unit02FireTile.cs
+/Assets/Scripts/Unit02FireTile.cs.meta
+/Assets/Scripts/Unit02WaterSimulation.cs
+/Assets/Scripts/Unit02WaterSimulation.cs.meta

@@ -1,0 +1,28 @@
+{
+  "runtime_validation": "UNIT02_VALIDATION_SUCCESS",
+  "legacy_scene_count": 15,
+  "legacy_frame_count": 360,
+  "legacy_trace_sha256": "e7ebd249415a395ada3c7297a52243557ae9eb5f8ef0b925eee0e93eeab64bc3",
+  "legacy_frames_different": 0,
+  "old_scene_sha256": {
+    "Assets/Level/Level01.unity": "c076bc6a64eca59292ba306202cc233a49cb31974e559c192cf47f83574cf91d",
+    "Assets/Level/Level03.unity": "7e622fc01ff4f91b32d18935cd84140ca51b57cbc9f734878a7c3224d9d0a64a",
+    "Assets/Level/Level07.unity": "40b51fa1d0db1ac8317226e02139497d597c355eaab33eaf5911ee8f1f8fca7d",
+    "Assets/Level/Level05.unity": "c6c9badc9b6c78c216ae3d468db1eed8413ea56c1c075f8ff2f68e644b35bfa3",
+    "Assets/Level/Level02.unity": "88dc10e23738dbbb57be2136392e4df0697f54b58b1bb3ddb4a45d266797fb90",
+    "Assets/Level/Level04.unity": "b9704e4d1c439c1fd6c55974e3995c560a6a6317db296cb8b78ee69693176a1d",
+    "Assets/Level/Level06.unity": "48af9cf3d4488c21fb32cdcf82254374a30ce712159f154ae3ae8a75576849c6",
+    "Assets/Level/Fanhua/Fanhua07.unity": "3275a93357ad7845333b2d264e7703435abc1e74d10513028c0c079f016fd15a",
+    "Assets/Level/Fanhua/Fanhua03.unity": "31ce11c519577cd2f3b912f4563d579dca22e9ee944dbab757cc7d43db45218b",
+    "Assets/Level/Fanhua/Fanhua01.unity": "82c14f91b33b1aa7310595b86f816eaa6813467071e5aa6206fb40400b0fc3a1",
+    "Assets/Level/Fanhua/Fanhua02.unity": "a341708ed0cfb7fc473663dc3a278a13f4b17229e5abfc7cf75bb81ea09c5696",
+    "Assets/Level/Fanhua/Fanhua08.unity": "5e34668f8d65e14e1eb7b4f8731a4b531a4692a81b57fe7367dee32c52a8da17",
+    "Assets/Level/Fanhua/FanhuaDirections.unity": "1990689ee66977a6d8a1f586ed47043a78fa660ee7e937cfb577aa419285e212",
+    "Assets/Level/Fanhua/Fanhua08Jump.unity": "f10e705ef36fa003ebc8b248c4b94fe840aae75ccb34499d78110d471dbafc9f",
+    "Assets/Level/Fanhua/Fanhua09.unity": "cc9248d3dbf9a1c2d519a74e0af67ac5f9996dd022312018f1fbb1357fc51064",
+    "Assets/Scenes/SampleScene.unity": "6ba4bb647064e63bae95badc79af95cb2b33589e0dbaa29dd6e382d43657f9c7",
+    "Assets/Scenes/ModeTest.unity": "91f656e19c883490102576b227b586d43cf5412810febb95677f90629ad54def",
+    "Assets/Scenes/FanhuaLab.unity": "5beeb88842665de4fa4dc0ac41c045a647c6e3134a060b91d011d483dc18511e"
+  },
+  "scope": "New fluid behavior requires PrototypeWaterLevel; legacy scenes contain no such component."
+}
