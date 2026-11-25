@@ -92,16 +92,13 @@ public sealed class Unit02WaterSimulation
         foreach(var fire in fires)
         {
             if(Cooled(fire)) continue;
-            foreach(var d in new[]{Vector2Int.up,Vector2Int.left,Vector2Int.right,Vector2Int.down})
-                Absorb(fire+d,fire,1f-state.Fires[fire]);
-            // Round only numerical residue, accounting for every absorbed fraction.
-            if(state.Fires[fire]>.99999f)
-            {
-                float rest=1f-state.Fires[fire];
-                foreach(var cell in new List<Vector2Int>(state.Cells.Keys))
-                { if(rest<=0) break; float use=Mathf.Min(Depth(cell),rest); Absorb(cell,fire,use); rest=1f-state.Fires[fire]; }
-                if(rest<.000001f) state.Fires[fire]=1f;
-            }
+            // Only an attempted downward fall into the fire can form stone.
+            // Side/bottom contacts remain blocking and cannot spend water.
+            var above=fire+Vector2Int.up;
+            if(solid.Contains(above)) continue;
+            Absorb(above,fire,1f-state.Fires[fire]);
+            // Numerical rounding must never pull water from unrelated cells.
+            if(state.Fires[fire]>=1f-Epsilon) state.Fires[fire]=1f;
         }
     }
     public bool HasSupport(Vector2Int cell) => Supported(cell);

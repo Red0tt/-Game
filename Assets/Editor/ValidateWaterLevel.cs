@@ -52,9 +52,23 @@ public static class ValidateWaterLevel
         for(int i=0;i<600;i++)open.Step();Balance(open,"open platform");Check(open.TotalLost>1.9f,"open platform spills from sides instead of retaining water");
         var falling=new Unit02WaterSimulation(new RectInt(0,0,9,9),new[]{new Vector2Int(3,6)});
         Check(!falling.HasSupport(new Vector2Int(3,6)),"airborne water does not grant a surface double jump");
-        var side=new Unit02WaterSimulation(new RectInt(0,0,9,9),new[]{new Vector2Int(3,4)});
-        side.AddFire(new Vector2Int(4,4));side.AddFire(new Vector2Int(5,4));side.Step();
-        Check(side.Cooled(new Vector2Int(4,4))&&!side.Cooled(new Vector2Int(5,4)),"side contact cools exactly one fire per unit");Balance(side,"fire consumption");
+        foreach(var offset in new[]{Vector2Int.left,Vector2Int.right,Vector2Int.down})
+        {
+            var side=new Unit02WaterSimulation(new RectInt(0,0,9,9),new[]{new Vector2Int(4,4)+offset});
+            side.AddFire(new Vector2Int(4,4));
+            for(int i=0;i<30;i++)side.Step();
+            Check(!side.Cooled(new Vector2Int(4,4))&&side.FireProgress(new Vector2Int(4,4))==0&&side.TotalSpent==0,
+                "side/bottom contact never cools fire: "+offset);Balance(side,"non-top contact");
+        }
+        var drop=new Unit02WaterSimulation(new RectInt(0,0,9,9),new[]{new Vector2Int(4,7)});
+        drop.AddFire(new Vector2Int(4,4));drop.AddFire(new Vector2Int(5,4));
+        for(int i=0;i<5;i++)drop.Step();
+        Check(drop.Cooled(new Vector2Int(4,4))&&!drop.Cooled(new Vector2Int(5,4))&&Mathf.Abs(drop.TotalSpent-1)<.0001f,
+            "vertical fall consumes one unit and cools only the target fire");Balance(drop,"vertical cooling");
+        var sealedTop=new Unit02WaterSimulation(new RectInt(0,0,9,9),new[]{new Vector2Int(3,4)});
+        sealedTop.AddFire(new Vector2Int(4,4));sealedTop.SetSolids(new[]{new Vector2Int(4,5),new Vector2Int(3,3)});
+        for(int i=0;i<30;i++)sealedTop.Step();
+        Check(sealedTop.FireProgress(new Vector2Int(4,4))==0,"blocked top cannot be cooled from a side");
         var shallow=new Unit02WaterSimulation(new RectInt(0,0,19,22),new[]{new Vector2Int(3,10),new Vector2Int(3,11)});shallow.SetSolids(Basin());
         for(int i=0;i<500;i++)shallow.Step();Check(shallow.Depth(new Vector2Int(3,5))<.01f,"two sources cannot manufacture three-deep water");
     }

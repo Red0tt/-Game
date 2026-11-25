@@ -24,5 +24,7 @@
     "Assets/Scenes/ModeTest.unity": "91f656e19c883490102576b227b586d43cf5412810febb95677f90629ad54def",
     "Assets/Scenes/FanhuaLab.unity": "5beeb88842665de4fa4dc0ac41c045a647c6e3134a060b91d011d483dc18511e"
   },
-  "scope": "New fluid behavior requires PrototypeWaterLevel; legacy scenes contain no such component."
+  "scope": "New fluid behavior requires PrototypeWaterLevel; legacy scenes contain no such component.",
+  "cooling_rule": "Only water falling from the cell directly above a fire contributes; side and bottom contacts do not spend water or cool.",
+  "directional_cooling_validation": "Passed top-fall, left/right/bottom rejection, blocked-top rejection and full level completion."
 }
