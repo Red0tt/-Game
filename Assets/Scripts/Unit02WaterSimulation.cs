@@ -15,7 +15,7 @@ public sealed class Unit02WaterSimulation
         public int Tick;
     }
     public readonly RectInt Bounds;
-    public readonly int SourceCount;
+    public int SourceCount {get;private set;}
     private State state;
     private readonly HashSet<Vector2Int> solid = new HashSet<Vector2Int>();
     private const float Epsilon = .000001f;
@@ -30,8 +30,41 @@ public sealed class Unit02WaterSimulation
         state = new State { Anchors = (Vector2Int[])anchors.Clone(), Spent = new float[SourceCount], Lost = new float[SourceCount] };
         for(int i=0;i<SourceCount;i++) Add(anchors[i],i,1f);
     }
+    public void IncludeSources(Vector2Int[] anchors)
+    {
+        if(anchors.Length<=SourceCount)return;
+        int oldCount=SourceCount;var old=state;var order=new int[anchors.Length];var used=new HashSet<int>();
+        for(int i=0;i<anchors.Length;i++)
+        {order[i]=-1;for(int j=0;j<oldCount;j++)if(!used.Contains(j)&&old.Anchors[j]==anchors[i]){order[i]=j;used.Add(j);break;}}
+        for(int j=0;j<oldCount;j++)if(!used.Contains(j))
+            for(int i=0;i<order.Length;i++)if(order[i]<0){order[i]=j;used.Add(j);break;}
+        // Sources already emitted remain represented; fresh paper adds only its own water.
+        state=new State{Anchors=(Vector2Int[])anchors.Clone(),Spent=new float[anchors.Length],Lost=new float[anchors.Length],Fires=old.Fires,Stones=old.Stones,Tick=old.Tick};
+        SourceCount=anchors.Length;
+        foreach(var pair in old.Cells)
+        {var amounts=new float[SourceCount];for(int i=0;i<SourceCount;i++)if(order[i]>=0)amounts[i]=pair.Value[order[i]];state.Cells.Add(pair.Key,amounts);}
+        for(int i=0;i<SourceCount;i++)
+        {if(order[i]>=0){state.Spent[i]=old.Spent[order[i]];state.Lost[i]=old.Lost[order[i]];}else Add(anchors[i],i,1);}
+    }
     public void SetSolids(IEnumerable<Vector2Int> cells)
-    { solid.Clear(); foreach(var cell in cells) solid.Add(cell); }
+    {
+        solid.Clear(); foreach(var cell in cells) solid.Add(cell);
+        // A reshaped paper wall displaces liquid rather than leaving it inside the paper.
+        foreach(var cell in new List<Vector2Int>(state.Cells.Keys))
+        {
+            if(!Blocked(cell))continue;
+            var queue=new Queue<Vector2Int>();var seen=new HashSet<Vector2Int>{cell};queue.Enqueue(cell);
+            while(queue.Count>0 && Depth(cell)>Epsilon)
+            {
+                var at=queue.Dequeue();
+                foreach(var step in new[]{Vector2Int.up,Vector2Int.left,Vector2Int.right})
+                {var next=at+step;if(!Bounds.Contains(next)||!seen.Add(next))continue;
+                 if(!Blocked(next))Transfer(cell,next,Mathf.Max(0,1f-Depth(next)));
+                 queue.Enqueue(next);}
+            }
+        }
+        Clean();
+    }
     public void AddFire(Vector2Int cell) { if(!state.Fires.ContainsKey(cell)) state.Fires.Add(cell,0); }
     public void RemoveFire(Vector2Int cell) {state.Fires.Remove(cell);}
     public float FireProgress(Vector2Int cell) => state.Fires.TryGetValue(cell,out float amount) ? amount : 0;
@@ -127,7 +160,8 @@ public sealed class Unit02WaterSimulation
             foreach(var d in new[]{Vector2Int.down,Vector2Int.left,Vector2Int.right})
             {
                 var next=cell+d;
-                if(Bounds.Contains(next)&&!Blocked(next)&&visited.Add(next))queue.Enqueue(next);
+                if(!Bounds.Contains(next)){target=next;return true;}
+                if(!Blocked(next)&&visited.Add(next))queue.Enqueue(next);
             }
         }
         target=default;return false;
@@ -200,7 +234,7 @@ public sealed class Unit02WaterSimulation
         foreach(var cell in empty) state.Cells.Remove(cell);
     }
     public State Capture() => Copy(state);
-    public void Restore(State saved) { state=Copy(saved); }
+    public void Restore(State saved) { state=Copy(saved);SourceCount=state.Anchors.Length; }
     private static State Copy(State input)
     {
         var result=new State { Anchors=(Vector2Int[])input.Anchors.Clone(), Spent=(float[])input.Spent.Clone(),

@@ -25,6 +25,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     [SerializeField] private bool enableFanhuaTest;
     [SerializeField] private bool fanhuaLab;
+    [SerializeField,Range(0,3)] private int initialFanhuaPalette;
     [SerializeField] private Vector2Int fanhuaAnchor = new Vector2Int(-2, -1);
     [SerializeField] private Vector2Int fanhuaGridOrigin = new Vector2Int(-5, -3);
     [SerializeField] private Vector2Int fanhuaGridSize = new Vector2Int(11, 7);
@@ -110,6 +111,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             if(projectedSolids[i]!=null) UpdateProjection(platformSolids[i],projectedSolids[i]);
     }
     public PlayerMode Mode { get; private set; }
+    internal void RequestLabModeSwitch(){switchRequested=true;}
+    internal void ConfigureLabPalette(int value){initialFanhuaPalette=Mathf.Clamp(value,0,3);}
 
     private void Start()
     {
@@ -140,6 +143,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
                 flowers[i] = new PrototypeFanhua(transform.parent, platformPhysics.transform,
                     material, i == 0 ? fanhuaAnchor : additionalFanhuaAnchors[i - 1], grid);
         }
+        foreach(var flower in flowers)for(int palette=0;palette<initialFanhuaPalette;palette++)flower.TogglePalette();
         gridBounds = fanhua != null ? fanhua.Grid : FindSceneGridBounds();
         SetMode(PlayerMode.Grid);
         initialState = CaptureState();
@@ -485,6 +489,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         EndAction();
         history.Push(CaptureState());
         levelComplete = true;
+        if(gameObject.scene.name.StartsWith("Route")){PlayerPrefs.SetInt("Fanhua.Completed."+gameObject.scene.name,1);PlayerPrefs.Save();}
         switchRequested = jumpRequested = false;
         if (Mode == PlayerMode.Platform)
             StopPlatformPhysics();
@@ -665,6 +670,28 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             return;
         }
         Vector3 cell = position + direction;
+        var pushCell=Vector2Int.RoundToInt(new Vector2(position.x,position.z));
+        var pushStep=new Vector2Int((int)direction.x,(int)direction.z);
+        if(HasSupport(position)&&HasSupport(cell)&&!HasObstacle(cell,out _,out _))
+            for(int i=0;i<flowers.Length;i++)
+            {
+                if(!flowers[i].TryPullBase(pushCell,pushStep,groundLayers,capsule,false))continue;
+                var beforeBasePull=CaptureState();
+                if(flowers[i].TryPullBase(pushCell,pushStep,groundLayers,capsule,true))
+                {history.Push(beforeBasePull);body.position=cell;pullFlower=-1;pullDirection=Vector2Int.zero;EndAction();RefreshGates();Physics.SyncTransforms();return;}
+            }
+        if(HasSupport(position))
+            for(int i=0;i<flowers.Length;i++)
+            {
+                if(!flowers[i].TryPush(pushCell,pushStep,groundLayers,capsule,false))continue;
+                if(waterLevel!=null&&!waterLevel.CanEditFlower(i)){EndAction();return;}
+                var beforePush=CaptureState();
+                if(flowers[i].TryPush(pushCell,pushStep,groundLayers,capsule,true))
+                {
+                    history.Push(beforePush);body.position=cell;pullFlower=-1;pullDirection=Vector2Int.zero;
+                    EndAction();RefreshGates();Physics.SyncTransforms();CheckGridSupport();return;
+                }
+            }
         if (!HasSupport(position) || HasObstacle(cell, out PrototypePushBox box, out PrototypeFallingBlock falling))
         {
             EndAction();
@@ -842,6 +869,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private void RefreshGates()
     {
+        if(Mode==PlayerMode.Grid&&waterLevel!=null)waterLevel.SynchronizePaper(flowers);
         foreach (PrototypePressureGate gate in gates)
             gate.Refresh(boxes, flowers);
         RefreshWaterProjections();
@@ -920,7 +948,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         ("Z", "撤回操作"),
         ("R", "重置关卡"),
         ("Q", "展开前翻转配色"),
-        ("E+方向", "推拉截面")
+        ("推拉", "面朝推／背身拉")
     };
 
     private Font completionFont;
@@ -1018,7 +1046,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             {
                 DrawControlHints();
                 if(fanhua!=null && Mode==PlayerMode.Grid)
-                    GUI.Label(new Rect(225,12,720,30),$"翻花 {fanhua.Extension}/10 · {fanhua.PaletteHint} · E+方向推拉截面",controlAction);
+                    GUI.Label(new Rect(225,12,720,30),$"翻花 {fanhua.Extension}/10 · {fanhua.PaletteHint} · 贴边方向键推拉",controlAction);
                 if (body != null)
                     DrawTutorial(Screen.width / scale, Screen.height / scale);
             }

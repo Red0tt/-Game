@@ -21,7 +21,8 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     private PrototypeFanhua[] flowers;
     private readonly List<PrototypeFallingBlock> sources=new List<PrototypeFallingBlock>();
     private readonly List<Rect> pools=new List<Rect>();
-    private readonly List<GameObject> visuals=new List<GameObject>();
+    private GameObject waterView;
+    private Mesh waterMesh;
     private Unit02FireTile[] sceneFire;
     private Material waterMaterial,markerMaterial,previewMaterial;
     private readonly List<LineRenderer> sourcePreviews=new List<LineRenderer>();
@@ -63,8 +64,7 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     }
     internal bool CanEditFlower(int index)
     {
-        if(simulation==null) return true;
-        Notify("本轮已开始放水；按Z撤回到首次放水前，可重新调整翻花"); return false;
+        return true; // Frozen water does not lock the remaining paper structure.
     }
     public State Capture() => new State { Open=SwitchOpen, Clock=clock, Fluid=simulation?.Capture() };
     public void Restore(State saved)
@@ -93,6 +93,7 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             for(int i=0;i<sources.Count;i++) anchors[i]=Vector2Int.RoundToInt(sources[i].CurrentState.Position);
             simulation=new Unit02WaterSimulation(player.WaterGrid,anchors);
         }
+        simulation.IncludeSources(sources.ConvertAll(source=>Vector2Int.RoundToInt(source.CurrentState.Position)).ToArray());
         for(int i=0;i<sources.Count;i++)
         {
             var source=sources[i];
@@ -100,6 +101,11 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             if(simulation.Remaining(i)<.00001f) source.Discard();
             else if(!source.CurrentState.Lost) { source.SetWater(true); source.StopPhysics(); }
         }
+    }
+    internal void SynchronizePaper(PrototypeFanhua[] activeFlowers)
+    {
+        if(simulation==null)return;
+        flowers=activeFlowers;RebuildTerrain();UpdatePools();RenderPools();
     }
     private void RebuildTerrain()
     {
@@ -111,12 +117,14 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             for(int x=Mathf.CeilToInt(b.min.x+.01f);x<=Mathf.FloorToInt(b.max.x-.01f);x++)
             for(int z=Mathf.CeilToInt(b.min.z+.01f);z<=Mathf.FloorToInt(b.max.z-.01f);z++) solid.Add(new Vector2Int(x,z));
         }
+        var currentFire=new HashSet<Vector2Int>();
         foreach(var flower in flowers)
         {
             foreach(var cell in flower.YellowCells) solid.Add(cell);
-            foreach(var cell in flower.FireCells) simulation.AddFire(cell);
+            foreach(var cell in flower.FireCells) {simulation.AddFire(cell);currentFire.Add(cell);}
         }
-        foreach(var fire in sceneFire) simulation.AddFire(fire.Cell);
+        foreach(var fire in sceneFire) {simulation.AddFire(fire.Cell);currentFire.Add(fire.Cell);}
+        foreach(var old in new List<Vector2Int>(simulation.FireCells))if(!currentFire.Contains(old))simulation.RemoveFire(old);
         simulation.SetSolids(solid);
     }
     internal void Advance(float seconds,PrototypeFanhua[] activeFlowers)
@@ -196,20 +204,24 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             waterMaterial.SetFloat("_Mode",3); waterMaterial.SetInt("_SrcBlend",5); waterMaterial.SetInt("_DstBlend",10);
             waterMaterial.SetInt("_ZWrite",0); waterMaterial.EnableKeyword("_ALPHAPREMULTIPLY_ON"); waterMaterial.renderQueue=3000;
         }
-        while(visuals.Count<pools.Count)
+        if(waterView==null)
         {
-            var obj=GameObject.CreatePrimitive(PrimitiveType.Cube); obj.name="Unit02 · 2D water cell";
-            obj.transform.SetParent(transform.parent,false); obj.GetComponent<Collider>().enabled=false;
-            Destroy(obj.GetComponent<Collider>()); obj.GetComponent<Renderer>().sharedMaterial=waterMaterial; visuals.Add(obj);
+            waterView=new GameObject("Continuous finite water",typeof(MeshFilter),typeof(MeshRenderer));waterView.transform.SetParent(transform.parent,false);
+            waterMesh=new Mesh{name="Connected water surface"};waterView.GetComponent<MeshFilter>().sharedMesh=waterMesh;waterView.GetComponent<Renderer>().sharedMaterial=waterMaterial;
         }
-        for(int i=0;i<visuals.Count;i++)
+        var vertices=new List<Vector3>();var triangles=new List<int>();
+        foreach(var pool in pools)
         {
-            visuals[i].SetActive(i<pools.Count);
-            if(i>=pools.Count) continue;
-            var pool=pools[i]; visuals[i].transform.position=platformMode ? new Vector3(pool.center.x,.5f,pool.center.y) : new Vector3(pool.x+.5f,.04f,pool.y+.5f);
-            visuals[i].transform.localScale=platformMode ? new Vector3(pool.width,.55f,pool.height) : new Vector3(.96f,.04f+pool.height*.12f,.96f);
+            int n=vertices.Count;float h=platformMode?.5f:.035f;
+            // Keep the actual finite-volume footprint when returning to 2.5D.
+            // A thin remainder never expands back into an entire floor tile.
+            vertices.AddRange(new[]{new Vector3(pool.xMin,h,pool.yMin),new Vector3(pool.xMin,h,pool.yMax),new Vector3(pool.xMax,h,pool.yMax),new Vector3(pool.xMax,h,pool.yMin)});
+            triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3,n+2,n+1,n,n+3,n+2,n});
         }
+        waterMesh.Clear();waterMesh.SetVertices(vertices);waterMesh.SetTriangles(triangles,0);waterMesh.SetNormals(new List<Vector3>(System.Array.ConvertAll(vertices.ToArray(),v=>Vector3.up)));waterMesh.RecalculateBounds();
+        waterView.SetActive(vertices.Count>0);
     }
+
     private void RenderSources()
     {
         if(previewMaterial==null) previewMaterial=new Material(Shader.Find("Sprites/Default"));
@@ -232,9 +244,10 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     internal void SetMode(bool platform)
     {
         platformMode=platform;
+        if(simulation!=null && flowers!=null){RebuildTerrain();UpdatePools();}
         RenderStones();
         RenderPools();
-        for(int i=0;i<visuals.Count;i++) visuals[i].SetActive(i<pools.Count);
+        if(waterView!=null)waterView.SetActive(pools.Count>0);
         foreach(var preview in sourcePreviews) preview.gameObject.SetActive(false);
     }
     private bool Wet(Vector2 point) { foreach(var pool in pools) if(pool.Contains(point)) return true; return false; }
@@ -296,6 +309,7 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             hintStyle.normal.textColor=PrototypePlayer.HudInk;
         }
         string hint=gameObject.scene.name=="GrayFallPlaytest" ? "灰块实验 · 右Shift放水/暂停 · WASD移动 · Space跳跃 · Z撤回 · R重置" : platformMode?"第二单元 · W上浮 / S下潜 · 水面Space跃出 · 绿色岸边可切回2.5D":"第二单元 · 先背身拉翻花 / Q换色，再切入2D放水 · 每蓝格一份水";
+        if(gameObject.scene.name=="FanhuaMechanismLab")hint="专项测试：先在3D造形，再切2D验证材料与外形；底部按钮切换组合";
         if(gameObject.scene.name.StartsWith("Connected"))hint="纸花庭院 · 展开前Q换色 · E+方向推拉截面 · 右Shift切换 · Esc返回庭院";
         GUI.Label(new Rect(0,44,Screen.width,28),hint,hintStyle);
         if(simulation!=null) GUI.Label(new Rect(0,72,Screen.width,26),$"水量 {simulation.TotalWater:F1}　冷却消耗 {simulation.TotalSpent:F1}　流失 {simulation.TotalLost:F1}",hintStyle);
@@ -317,6 +331,6 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         if(waterMaterial!=null) Destroy(waterMaterial); if(previewMaterial!=null) Destroy(previewMaterial);
         foreach(var preview in sourcePreviews) if(preview!=null) Destroy(preview.gameObject);
         if(hintFont!=null) Destroy(hintFont);
-        foreach(var obj in visuals) if(obj!=null) Destroy(obj);
+        if(waterView!=null)Destroy(waterView);if(waterMesh!=null)Destroy(waterMesh);
     }
 }

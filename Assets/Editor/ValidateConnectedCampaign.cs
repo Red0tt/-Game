@@ -10,9 +10,9 @@ public static class ValidateConnectedCampaign
  static ValidateConnectedCampaign(){EditorApplication.playModeStateChanged+=OnPlay;}
  public static void Run(){
  var all=new System.Collections.Generic.List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
- for(int i=1;i<=9;i++){string path="Assets/Level/Connected/Connected0"+i+".unity";all.RemoveAll(x=>x.path==path);all.Add(new EditorBuildSettingsScene(path,true));}
+ for(int i=1;i<=9;i++){string path="Assets/Level/try/Connected0"+i+".unity";all.RemoveAll(x=>x.path==path);all.Add(new EditorBuildSettingsScene(path,true));}
  EditorBuildSettings.scenes=all.ToArray();
-EditorSceneManager.OpenScene("Assets/Level/Connected/Connected01.unity");SessionState.SetInt("ConnectedStage",1);EditorApplication.isPlaying=true;}
+EditorSceneManager.OpenScene("Assets/Level/try/Connected01.unity");SessionState.SetInt("ConnectedStage",1);EditorApplication.isPlaying=true;}
  static void OnPlay(PlayModeStateChange s){if(s==PlayModeStateChange.EnteredPlayMode&&SessionState.GetInt("ConnectedStage",0)>0)EditorApplication.delayCall+=Test;}
  static void Test(){try{
   int stage=SessionState.GetInt("ConnectedStage",1);

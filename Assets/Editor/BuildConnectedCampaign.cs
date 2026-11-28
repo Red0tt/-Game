@@ -6,16 +6,16 @@ using UnityEngine;
 public static class BuildConnectedCampaign
 {
     [MenuItem("Fanhua/Playtest/Open World Map")]
-    public static void Open(){EditorSceneManager.OpenScene("Assets/Scenes/FanhuaWorldMap.unity");}
+    public static void Open(){EditorSceneManager.OpenScene("Assets/Level/try/FanhuaWorldMap.unity");}
     public static void BuildAll(){BuildGrayPlaytest.Build();Build();}
     public static void Build()
     {
-        System.IO.Directory.CreateDirectory("Assets/Level/Connected");
+        System.IO.Directory.CreateDirectory("Assets/Level/try");
         for(int stage=1;stage<=9;stage++)Room(stage);
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
         new GameObject("World",typeof(FanhuaWorldMap));
         var cam=new GameObject("Main Camera",typeof(Camera),typeof(AudioListener));cam.tag="MainCamera";cam.transform.SetPositionAndRotation(new Vector3(0,20,2),Quaternion.Euler(90,0,0));cam.GetComponent<Camera>().clearFlags=CameraClearFlags.SolidColor;cam.GetComponent<Camera>().backgroundColor=new Color(.94f,.96f,.92f);cam.GetComponent<Camera>().orthographic=true;cam.GetComponent<Camera>().orthographicSize=11;cam.GetComponent<Camera>().backgroundColor=new Color(.9f,.95f,.9f);
-        Lighting();EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(),"Assets/Scenes/FanhuaWorldMap.unity");
+        Lighting();EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(),"Assets/Level/try/FanhuaWorldMap.unity");
         AssetDatabase.SaveAssets();Debug.Log("CONNECTED_CAMPAIGN_BUILT");
     }
     static void Lighting(){var o=new GameObject("Light",typeof(Light));o.GetComponent<Light>().type=LightType.Directional;o.transform.rotation=Quaternion.Euler(50,-30,0);RenderSettings.ambientLight=Color.white*.7f;}
@@ -58,6 +58,6 @@ public static class BuildConnectedCampaign
         var ar=so.FindProperty("platformSolids");ar.arraySize=solids.Count;for(int i=0;i<solids.Count;i++)ar.GetArrayElementAtIndex(i).objectReferenceValue=solids[i];var fa=so.FindProperty("fallingBlocks");fa.arraySize=sources.Count;for(int i=0;i<sources.Count;i++)fa.GetArrayElementAtIndex(i).objectReferenceValue=sources[i];var ga=so.FindProperty("gates");ga.arraySize=gates.Count;for(int i=0;i<gates.Count;i++)ga.GetArrayElementAtIndex(i).objectReferenceValue=gates[i];so.ApplyModifiedPropertiesWithoutUndo();
         var cam=new GameObject("Main Camera",typeof(Camera),typeof(AudioListener),typeof(PrototypeCamera));cam.tag="MainCamera";cam.GetComponent<Camera>().clearFlags=CameraClearFlags.SolidColor;cam.GetComponent<Camera>().backgroundColor=new Color(.94f,.96f,.92f);cam.GetComponent<Camera>().orthographic=true;cam.GetComponent<Camera>().orthographicSize=13;
         so=new SerializedObject(cam.GetComponent<PrototypeCamera>());so.FindProperty("player").objectReferenceValue=player;so.FindProperty("focus").vector3Value=new Vector3(3.5f,.5f,6);so.ApplyModifiedPropertiesWithoutUndo();Lighting();
-        EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(),$"Assets/Level/Connected/Connected0{stage}.unity");
+        EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(),$"Assets/Level/try/Connected0{stage}.unity");
     }
 }

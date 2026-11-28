@@ -270,4 +270,9 @@ B 停在 J 后，从 (9,2) 下到 (9,3)，向右到 (10,3)，再下到 (10,4)，
 
 ## 当前新机制九关
 
-新九关与学习目标、坐标级参考解合并记录于 PROJECT_PLAN.md 第8节；入口 Assets/Scenes/FanhuaWorldMap.unity。本文早期七关保留作为旧关资料，不代表已按新规则重新验收。
+新九关与学习目标、坐标级参考解合并记录于 PROJECT_PLAN.md 第8节；入口 Assets/Level/try/FanhuaWorldMap.unity。本文早期七关保留作为旧关资料，不代表已按新规则重新验收。
+
+
+## 主线恢复说明
+
+当前主流程改回原七关的Route01…07副本，并在前三关加入翻花展开／上弯／下弯入口。九个Connected压板房不再作为主线。最新规则、主线及参考来源见 PROJECT_PLAN.md 第9节。

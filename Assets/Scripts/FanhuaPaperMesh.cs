@@ -26,9 +26,32 @@ internal static class FanhuaPaperMesh
         for(int i=0;i<indexCount;i+=3)triangles.AddRange(new[]{triangles[i]+count,triangles[i+2]+count,triangles[i+1]+count});
         var mesh=new Mesh{name=name};mesh.SetVertices(vertices);mesh.SetTriangles(triangles,0);mesh.RecalculateNormals();return mesh;
     }
-    internal static Mesh Spikes(Vector2 outward)
+    internal static Mesh Ribbon(List<Vector3> centers,bool positiveSide)
     {
-        Vector2 tangent=new Vector2(-outward.y,outward.x);
+        var vertices=new List<Vector3>();var triangles=new List<int>();
+        const int resolution=24,sides=8;
+        for(int i=0;i<(centers.Count-1)*resolution+1;i++)
+        {
+            int segment=Mathf.Min(i/resolution,centers.Count-2);float fraction=(i-segment*resolution)/(float)resolution;
+            Vector3 center=Vector3.Lerp(centers[segment],centers[segment+1],fraction);
+            // Grid-aligned cross sections: each cell is straight or one full diagonal.
+            Vector3 tangent=centers[centers.Count-1]-centers[0];
+            Vector3 lateral=Mathf.Abs(tangent.x)>=Mathf.Abs(tangent.z)?Vector3.forward:Vector3.left;
+            float radius=1f;
+            for(int n=0;n<=sides;n++)
+            {
+                float angle=(positiveSide?-.5f:.5f)*Mathf.PI+n*Mathf.PI/sides;
+                vertices.Add(center+lateral*(Mathf.Cos(angle)*radius)+Vector3.up*(Mathf.Sin(angle)*(.25f+.06f*Mathf.Cos(i*Mathf.PI*2/3f))));
+            }
+            if(i==0)continue;
+            for(int n=0;n<sides;n++)
+            {int a=(i-1)*(sides+1)+n,b=i*(sides+1)+n;triangles.AddRange(new[]{a,b,a+1,a+1,b,b+1});}
+        }
+        return Finish(vertices,triangles,"Continuous pleated hose");
+    }
+    internal static Mesh Spikes(Vector2 outward, Vector2? edge=null)
+    {
+        Vector2 tangent=edge??new Vector2(-outward.y,outward.x);
         var v=new List<Vector3>();var triangles=new List<int>();
         for(int i=0;i<4;i++)
         {

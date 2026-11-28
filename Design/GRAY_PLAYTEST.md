@@ -1,6 +1,6 @@
 # 灰块试玩
 
-打开 `Assets/Scenes/GrayFallPlaytest.unity`，点 Play。也可用 Unity 菜单 `Fanhua > Playtest > Open Gray Fall Test` 打开。
+打开 `Assets/Level/try/GrayFallPlaytest.unity`，点 Play。也可用 Unity 菜单 `Fanhua > Playtest > Open Gray Fall Test` 打开。
 
 1. 出生后按右 Shift：无需先摆放，即可看到水落入红格形成灰块。
 2. 左侧观察下落到底；中间观察黄色承托；右侧观察竖排红格及灰块阻水。
@@ -11,4 +11,11 @@
 本场景是机制沙盒，无通关目标。目前尚无折角推拉、完整纸褶表现及红黄刺朝向。灰块目前逐格下落，进入有水目标格时暂被阻挡；水中沉降尚待改进。
 
 
-新机制主入口改为 Assets/Scenes/FanhuaWorldMap.unity。Q 在展开前循环方向／反向／红黄／上蓝下红；展开后贴近截面 E+方向推拉。折角也占10格预算。3D水与灰石暂停，2D继续；Esc返回庭院。完整九关说明与参考解见 PROJECT_PLAN.md 第8节。
+新机制主入口改为 Assets/Level/try/FanhuaWorldMap.unity。Q 在展开前循环方向／反向／红黄／上蓝下红；展开后贴近截面 E+方向推拉。折角也占10格预算。3D水与灰石暂停，2D继续；Esc返回庭院。完整九关说明与参考解见 PROJECT_PLAN.md 第8节。
+
+
+## 最新独立翻花专项关
+
+`Assets/Level/try/FanhuaMechanismLab.unity`：优先使用本关测试拉开、反推、弯折及跨形态保形。底部按钮提供红黄、蓝黄、红上蓝下、蓝上红下四个实验，每次切换会重置场景。黄色在2D仍是连续纸带，蓝色化水，红色为真实尖刺；组合沿用已有规则。没有出口任务，不与十五关设计混为一谈。
+
+测试清单：直拉1格后反向推回；向上下弯折并观察连接；2D黄色轮廓与3D投影一致；刺的平面贴同源黄色、尖端朝外；蓝黄平面泄水与凹槽承托；红上蓝下碎裂；蓝上红下两格合成一格灰石且可下落；3D水／灰石暂停，蓝块不复活；Z撤回与R重置。

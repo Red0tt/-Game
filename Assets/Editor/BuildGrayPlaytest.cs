@@ -5,7 +5,7 @@ using UnityEngine;
 
 public static class BuildGrayPlaytest
 {
-    public const string Path="Assets/Scenes/GrayFallPlaytest.unity";
+    public const string Path="Assets/Level/try/GrayFallPlaytest.unity";
     [MenuItem("Fanhua/Playtest/Open Gray Fall Test")]
     public static void Open() { EditorSceneManager.OpenScene(Path); }
     public static void Build()

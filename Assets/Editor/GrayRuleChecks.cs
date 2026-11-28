@@ -21,6 +21,11 @@ public static class GrayRuleChecks {
   pool.SetSolids(new[]{new Vector2Int(0,1),new Vector2Int(-1,2),new Vector2Int(1,2)});
   for(int i=0;i<300;i++)pool.Step();
   Require(Mathf.Abs(pool.TotalWater-1)<.0001f,"sealed basin retains normal water");
+  var shelf=new Unit02WaterSimulation(new RectInt(-20,0,41,8),new[]{new Vector2Int(0,4)});
+  var wide=new System.Collections.Generic.List<Vector2Int>();for(int x=-20;x<=20;x++)wide.Add(new Vector2Int(x,1));shelf.SetSolids(wide);
+  for(int i=0;i<80;i++)shelf.Step();Require(shelf.TotalWater==0,"wide continuous floor drains through open ends");
+  var displaced=new Unit02WaterSimulation(new RectInt(-3,0,7,8),new[]{new Vector2Int(0,3)});
+  displaced.SetSolids(new[]{new Vector2Int(0,3)});Require(displaced.Depth(new Vector2Int(0,3))==0&&Mathf.Abs(displaced.TotalWater-1)<.0001f,"paper edit displaces water without overlap or deletion");
   typeof(ValidateWaterLevel).GetMethod("SolverTests",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic).Invoke(null,null);
   Debug.Log("GRAY_RULE_CHECKS_PASSED");
  }

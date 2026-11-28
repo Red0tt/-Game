@@ -24,6 +24,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     private bool waterView;
     public State CurrentState { get; private set; }
     public bool CanHangInGrid { get; private set; }
+    public bool HideSolidInGrid { get; set; }
 
     public void CreateFootprint(Transform parent, bool canHangInGrid = false)
     {
@@ -146,7 +147,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     {
         usesWaterViews = true;
         waterView = platformMode;
-        GetComponent<Renderer>().enabled = !CurrentState.Lost && (!CurrentState.Water && (!platformMode || CurrentState.Plugged || CurrentState.Gray));
+        GetComponent<Renderer>().enabled = !CurrentState.Lost && (!CurrentState.Water && (!platformMode || CurrentState.Plugged || CurrentState.Gray)) && (platformMode || !HideSolidInGrid || CurrentState.Gray);
         GetComponent<BoxCollider>().enabled = !platformMode && !CurrentState.Lost && !CurrentState.Water;
     }
 

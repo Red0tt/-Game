@@ -1,0 +1,9 @@
+# Keep Unity's text assets stable across macOS and Windows.
+*.cs text eol=lf
+*.meta text eol=lf whitespace=-blank-at-eol
+*.unity text eol=lf whitespace=-blank-at-eol
+*.prefab text eol=lf whitespace=-blank-at-eol
+*.asset text eol=lf whitespace=-blank-at-eol
+*.mat text eol=lf whitespace=-blank-at-eol
+*.md text eol=lf
+*.py text eol=lf

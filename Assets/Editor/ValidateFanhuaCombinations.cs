@@ -8,7 +8,7 @@ using UnityEngine;
 public static class ValidateFanhuaCombinations
 {
  static ValidateFanhuaCombinations(){EditorApplication.playModeStateChanged+=OnPlay;}
- public static void Run(){EditorSceneManager.OpenScene("Assets/Level/Connected/Connected09.unity");SessionState.SetBool("CombinationTest",true);EditorApplication.isPlaying=true;}
+ public static void Run(){EditorSceneManager.OpenScene("Assets/Level/try/Connected09.unity");SessionState.SetBool("CombinationTest",true);EditorApplication.isPlaying=true;}
  static void OnPlay(PlayModeStateChange s){if(s==PlayModeStateChange.EnteredPlayMode&&SessionState.GetBool("CombinationTest",false)){SessionState.SetBool("CombinationTest",false);EditorApplication.delayCall+=Test;}}
  static void Test(){try{
   var flags=BindingFlags.Instance|BindingFlags.NonPublic;var p=UnityEngine.Object.FindObjectOfType<PrototypePlayer>();p.enabled=false;

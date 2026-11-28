@@ -37,3 +37,9 @@
 
 # Local development snapshots (source is versioned below)
 /Backups/
+
+# Local validation output (tests run outside the source checkout)
+/TestResults/
+/ValidationLogs/
+/Tools/__pycache__/
+*.log
