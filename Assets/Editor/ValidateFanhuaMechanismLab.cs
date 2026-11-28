@@ -27,6 +27,7 @@ public static class ValidateFanhuaMechanismLab
         void Tick(){typeof(PrototypeWaterLevel).GetMethod("Advance",flags).Invoke(water,new object[]{.12f,pt.GetField("flowers",flags).GetValue(p)});}
         GameObject Yellow()
         {foreach(DictionaryEntry pair in (IDictionary)ft.GetField("ribbonColors",flags).GetValue(flower))if(pair.Value.ToString()=="Yellow")return (GameObject)pair.Key;throw new Exception("continuous yellow missing");}
+        if((bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(-4,5),Vector2Int.right,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("folded base moved");
         Reset(2);
         if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(0,4),Vector2Int.up,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("bend blocked");
         var yellow=Yellow();var mesh=yellow.GetComponent<MeshFilter>().sharedMesh;var before=mesh.vertices;
@@ -41,15 +42,10 @@ public static class ValidateFanhuaMechanismLab
         if(!(bool)typeof(PrototypeWaterLevel).GetMethod("CanEditFlower",flags).Invoke(water,new object[]{0}))throw new Exception("return edit locked");
         int budget=(int)ft.GetProperty("Extension").GetValue(flower);
         if(budget<=4)throw new Exception("bend did not spend length");
-        if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(-3,4),Vector2Int.up,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("origin cannot bend after 2D return");
+        if((bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(-3,4),Vector2Int.up,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("origin moved sideways");
+        if((bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(-4,5),Vector2Int.right,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("whole flower translated");
         Reset(2);
-        if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(-4,5),Vector2Int.right,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("origin cannot translate");
-        if((Vector2Int)ft.GetProperty("AnchorCell").GetValue(flower)!=new Vector2Int(-2,5))throw new Exception("origin translation missing");
-        // Identical left/right pushes must produce mirror-identical grid boundaries.
-        Reset(2);
-        foreach(int x in new[]{-3,2})if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(x,4),Vector2Int.up,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("symmetric end push blocked");
-        var mirrored=Yellow().GetComponent<MeshFilter>().sharedMesh.vertices;int rings=mirrored.Length/18;
-        for(int i=0;i<rings;i++)if(Mathf.Abs(mirrored[i*9+4].z-mirrored[(rings-1-i)*9+4].z)>.001f)throw new Exception("end shapes are not mirrored");
+        foreach(int x in new[]{0,2})if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(x,4),Vector2Int.up,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("free strip push blocked");
         var meshMap=(IDictionary)ft.GetField("spikeMeshes",flags).GetValue(flower);
         foreach(DictionaryEntry pair in meshMap)
         {
@@ -66,7 +62,40 @@ public static class ValidateFanhuaMechanismLab
         Reset(2);p.GetComponent<Rigidbody>().position=new Vector3(-4,.7f,5);Physics.SyncTransforms();
         pt.GetField("queuedGridDirection",flags).SetValue(p,Vector3.left);pt.GetField("moveInput",flags).SetValue(p,Vector2.left);pt.GetField("nextGridStep",flags).SetValue(p,0f);
         pt.GetMethod("UpdateGridMovement",flags).Invoke(p,null);
-        if((Vector2Int)ft.GetProperty("AnchorCell").GetValue(flower)!=new Vector2Int(-4,5)||p.GetComponent<Rigidbody>().position.x!=-5)throw new Exception("normal movement cannot pull base");
+        if((Vector2Int)ft.GetProperty("AnchorCell").GetValue(flower)!=new Vector2Int(-3,5)||p.GetComponent<Rigidbody>().position.x!=-5)throw new Exception("walking away moved fixed base");
+        Reset(2);
+        if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(2,7),Vector2Int.down,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("tip down bend failed");
+        p.GetComponent<Rigidbody>().position=new Vector3(3,.7f,4);Physics.SyncTransforms();
+        for(int i=0;i<2;i++)
+        {
+            pt.GetField("queuedGridDirection",flags).SetValue(p,Vector3.right);pt.GetField("moveInput",flags).SetValue(p,Vector2.right);pt.GetField("nextGridStep",flags).SetValue(p,0f);
+            pt.GetMethod("UpdateGridMovement",flags).Invoke(p,null);
+        }
+        if((Vector2Int)ft.GetProperty("EndCell").GetValue(flower)!=new Vector2Int(4,5))throw new Exception("straight movement did not extend bent tip");
+        var straight=Yellow().GetComponent<MeshFilter>().sharedMesh.vertices;int count=straight.Length/18;
+        for(int ring=count-49;ring<count;ring++)if(Mathf.Abs(straight[ring*9+4].z-3.5f)>.001f)throw new Exception("new strips sloped away from walking direction");
+        if((int)ft.GetProperty("Extension").GetValue(flower)>10)throw new Exception("inherited tip exceeded budget");
+        var offsetsState=ft.GetMethod("Capture").Invoke(flower,null);var savedOffsets=(IDictionary)offsetsState.GetType().GetField("Offsets").GetValue(offsetsState);
+        if((int)savedOffsets[3]!=-1||(int)savedOffsets[4]!=-1)throw new Exception("new tip lost its original height");
+        // Reproduce both reported directions through the real character movement path.
+        void Walk(Vector3 direction)
+        {
+            pt.GetField("queuedGridDirection",flags).SetValue(p,direction);pt.GetField("moveInput",flags).SetValue(p,new Vector2(direction.x,direction.z));pt.GetField("nextGridStep",flags).SetValue(p,0f);
+            pt.GetMethod("UpdateGridMovement",flags).Invoke(p,null);
+            var at=p.GetComponent<Rigidbody>().position;
+            if((bool)ft.GetMethod("OverlapsPaper").Invoke(flower,new object[]{Vector2Int.RoundToInt(new Vector2(at.x,at.z))}))throw new Exception("character entered visible paper after push");
+        }
+        Reset(2);p.GetComponent<Rigidbody>().position=new Vector3(0,.7f,7);Physics.SyncTransforms();
+        Walk(Vector3.back);Walk(Vector3.back);
+        if(p.GetComponent<Rigidbody>().position.z!=5)throw new Exception("top-to-bottom pushes failed");
+        if((Vector2Int)ft.GetProperty("AnchorCell").GetValue(flower)!=new Vector2Int(-3,5))throw new Exception("downward pushes moved base");
+        Reset(2);
+        if(!(bool)ft.GetMethod("TryPush").Invoke(flower,new object[]{new Vector2Int(2,7),Vector2Int.down,(LayerMask)1,p.GetComponent<Collider>(),true}))throw new Exception("bent compression fixture failed");
+        p.GetComponent<Rigidbody>().position=new Vector3(3,.7f,4);Physics.SyncTransforms();
+        Walk(Vector3.left);Walk(Vector3.left);
+        if((Vector2Int)ft.GetProperty("EndCell").GetValue(flower)!=new Vector2Int(0,5)||p.GetComponent<Rigidbody>().position.x!=1)throw new Exception("right-to-left bent compression failed");
+        var compressed=ft.GetMethod("Capture").Invoke(flower,null);var compressedOffsets=(IDictionary)compressed.GetType().GetField("Offsets").GetValue(compressed);
+        if((int)compressedOffsets[0]!=-1)throw new Exception("compression lost bent tip height");
         Reset(0);Mode(PlayerMode.Platform);Tick();
         foreach(var source in (IEnumerable)ft.GetProperty("BlueBlocks").GetValue(flower))
         {var block=(PrototypeFallingBlock)source;if(!block.CurrentState.Water||block.GetComponent<Renderer>().enabled)throw new Exception("blue failed to become water");}

@@ -12,7 +12,7 @@
 
 测试入口：`Assets/Editor/ValidateFanhuaMechanismLab.cs`；水与灰石回归：`ValidateGrayPlaytest.cs`、`GrayRuleChecks.cs`。场景需要重建才查看 `BuildFanhuaMechanismLab.cs`。其他关卡、庭院和旧实验场景先不修改。
 
-规则最新补充位于 `PROJECT_PLAN.md` 第12节；历史记录不必每轮全部读取。
+规则最新补充位于 `PROJECT_PLAN.md` 第14节；历史记录不必每轮全部读取。
 
 ## Git 最小交付
 

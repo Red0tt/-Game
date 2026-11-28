@@ -672,14 +672,6 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         Vector3 cell = position + direction;
         var pushCell=Vector2Int.RoundToInt(new Vector2(position.x,position.z));
         var pushStep=new Vector2Int((int)direction.x,(int)direction.z);
-        if(HasSupport(position)&&HasSupport(cell)&&!HasObstacle(cell,out _,out _))
-            for(int i=0;i<flowers.Length;i++)
-            {
-                if(!flowers[i].TryPullBase(pushCell,pushStep,groundLayers,capsule,false))continue;
-                var beforeBasePull=CaptureState();
-                if(flowers[i].TryPullBase(pushCell,pushStep,groundLayers,capsule,true))
-                {history.Push(beforeBasePull);body.position=cell;pullFlower=-1;pullDirection=Vector2Int.zero;EndAction();RefreshGates();Physics.SyncTransforms();return;}
-            }
         if(HasSupport(position))
             for(int i=0;i<flowers.Length;i++)
             {

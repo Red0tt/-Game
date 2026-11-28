@@ -19,7 +19,7 @@ internal sealed class PrototypeFanhua
         public bool[] Broken;
     }
 
-    private Vector2Int anchor;
+    private readonly Vector2Int anchor;
     private readonly RectInt grid;
     private readonly Transform world;
     private readonly Transform platform;
@@ -118,7 +118,7 @@ internal sealed class PrototypeFanhua
         int min=horizontal?area.xMin:area.yMin,max=horizontal?area.xMax:area.yMax;
         int length=Mathf.Max(0,(horizontal?area.width:area.height)-2);
         for(int n=min+1;n<max;n++)
-        {int a=offsets.TryGetValue(n-1,out int av)?av:0,b=offsets.TryGetValue(n,out int bv)?bv:0;length+=Mathf.Abs(a-b);}
+        {int a=ExtensionOffset(n-1),b=ExtensionOffset(n);length+=Mathf.Abs(a-b);}
         return length;
     }
     public string PaletteHint => new[]{"A · directional","B · reversed","C · red/yellow","D · blue above red"}[paletteMode];
@@ -127,7 +127,7 @@ internal sealed class PrototypeFanhua
 
     public void Restore(State state)
     {
-        anchor = state.Anchor; released = state.Released;
+        released = state.Released;
         cooledStrips.Clear();shatteredStrips.Clear();
         if(state.Cooled!=null)cooledStrips.UnionWith(state.Cooled);if(state.Shattered!=null)shatteredStrips.UnionWith(state.Shattered);
         end = state.End;
@@ -185,16 +185,9 @@ internal sealed class PrototypeFanhua
     public bool TryPush(Vector2Int player,Vector2Int step,LayerMask solids,Collider actor,bool apply)
     {
         if(platformMode||!Contains(player+step,end))return false;
-        if(Axis==0)return TryTranslate(player,step,solids,actor,apply);
+        if(Axis==0)return false;
         var axis=PullAxis(end);
-        if(step==axis)
-        {
-            var contact=originalCells[player+step];
-            var area=Area(end);int station=Axis==1?contact.x:contact.y;
-            int baseStation=Axis==1?(axis.x>0?area.xMin:area.xMax-1):(axis.y>0?area.yMin:area.yMax-1);
-            if(station!=baseStation)return false;
-            return TryTranslate(player,step,solids,actor,apply);
-        }
+        if(step==axis)return false; // The base cannot translate the flower.
         if(step==-axis)
         {
             // Compress from the moving end, without returning to the folded base.
@@ -202,38 +195,19 @@ internal sealed class PrototypeFanhua
             var contact=originalCells[player+step];
             if((Axis==1?contact.x:contact.y)!=station)return false;
             var target=end+step;
-            if(Area(target).size!=Area(end).size- (Axis==1?Vector2Int.right:Vector2Int.up)||Contains(player+step,target))return false;
-            if(apply){var before=Capture();end=target;RebuildKeepingMaterials(before);}
-            return true;
+            if(Area(target).size!=Area(end).size- (Axis==1?Vector2Int.right:Vector2Int.up))return false;
+            var before=Capture();var oldEnd=end;var previous=new Dictionary<int,int>(offsets);
+            int tipOffset=OffsetAt(station);end=target;
+            int newTip=Axis==1?end.x:end.y;
+            bool valid=!IsBaseStation(newTip)||tipOffset==0;
+            offsets.Remove(station);offsets[newTip]=tipOffset;
+            var area=Area(end);int min=Axis==1?area.xMin:area.yMin,max=Axis==1?area.xMax:area.yMax;
+            valid=valid&&PropagateOffsets(newTip,min,max)&&LengthFor(end)<=10&&ValidateEdit(player+step,solids,actor);
+            if(valid&&apply){RebuildKeepingMaterials(before);return true;}
+            end=oldEnd;offsets.Clear();foreach(var pair in previous)offsets.Add(pair.Key,pair.Value);
+            return valid;
         }
         return TryShiftStrip(player,step,solids,actor,apply);
-    }
-
-    public bool TryPullBase(Vector2Int player,Vector2Int step,LayerMask solids,Collider actor,bool apply)
-    {
-        if(platformMode||Axis==0||step!=-PullAxis(end)||Contains(player,end)||!Contains(player-step,end))return false;
-        var contact=originalCells[player-step];var area=Area(end);
-        int station=Axis==1?contact.x:contact.y;
-        int baseStation=Axis==1?(step.x<0?area.xMin:area.xMax-1):(step.y<0?area.yMin:area.yMax-1);
-        return station==baseStation && TryTranslate(player,step,solids,actor,apply);
-    }
-
-    private bool TryTranslate(Vector2Int player,Vector2Int step,LayerMask solids,Collider actor,bool apply)
-    {
-        var before=Capture();var oldAnchor=anchor;var oldEnd=end;var oldOffsets=new Dictionary<int,int>(offsets);
-        anchor+=step;end+=step;offsets.Clear();
-        int advance=Axis==1?step.x:step.y;
-        foreach(var pair in oldOffsets)offsets[pair.Key+advance]=pair.Value;
-        bool valid=true;
-        foreach(var cell in Footprint(end,true))
-        {
-            if(!grid.Contains(cell)||cell==player+step){valid=false;break;}
-            foreach(var hit in Physics.OverlapBox(World(cell),Vector3.one*.44f,Quaternion.identity,solids,QueryTriggerInteraction.Ignore))
-                if(hit!=actor&&!(hit is BoxCollider wall&&walls.Contains(wall))&&!blue.Exists(b=>b.gameObject==hit.gameObject))valid=false;
-        }
-        if(valid&&apply){RebuildKeepingMaterials(before);return true;}
-        anchor=oldAnchor;end=oldEnd;offsets.Clear();foreach(var pair in oldOffsets)offsets.Add(pair.Key,pair.Value);
-        return valid;
     }
 
     // Shift a two-colour cross-section. Adjacent strips must still share an edge.
@@ -246,38 +220,66 @@ internal sealed class PrototypeFanhua
         if(Contains(player+step,end)){chosen=player+step;nearest=1;}
         if(nearest>1)return false;
         var original=originalCells[chosen];int station=Axis==1?original.x:original.y;
-        // Both endpoints can bend; the logical origin only identifies material strips.
+        // The original two-cell base is permanently anchored.
+        if(IsBaseStation(station))return false;
         int old=offsets.TryGetValue(station,out int v)?v:0;
         int next=old+(Axis==1?step.y:step.x);
         var area=Area(end);int min=Axis==1?area.xMin:area.yMin;int max=Axis==1?area.xMax:area.yMax;
         var previousOffsets=new Dictionary<int,int>(offsets);
         offsets[station]=next;
-        var pending=new Queue<int>();pending.Enqueue(station);
-        while(pending.Count>0)
-        {
-            int current=pending.Dequeue();int currentOffset=offsets[current];
-            for(int neighbour=current-1;neighbour<=current+1;neighbour+=2)
-            {
-                if(neighbour<min||neighbour>=max)continue;
-                int neighbourOffset=offsets.TryGetValue(neighbour,out int oldNeighbour)?oldNeighbour:0;
-                if(Mathf.Abs(currentOffset-neighbourOffset)<=1)continue;
-                offsets[neighbour]=currentOffset-System.Math.Sign(currentOffset-neighbourOffset);pending.Enqueue(neighbour);
-            }
-        }
-        bool valid=LengthFor(end)<=10;
-        foreach(var cell in Footprint(end,true))
-        {
-            if(!grid.Contains(cell)||cell==player+step){LastEditFailure="occupied/edge "+cell;valid=false;break;}
-            foreach(var hit in Physics.OverlapBox(World(cell),Vector3.one*.44f,Quaternion.identity,solids,QueryTriggerInteraction.Ignore))
-                if(hit!=actor&&!(hit is BoxCollider wall&&walls.Contains(wall))&&!blue.Exists(block=>block.gameObject==hit.gameObject)){LastEditFailure=hit.name+" at "+cell;valid=false;break;}
-        }
-        foreach(var hit in Physics.OverlapBox(World(player+step),Vector3.one*.35f,Quaternion.identity,solids,QueryTriggerInteraction.Ignore))
-            if(hit!=actor&&!(hit is BoxCollider wall&&walls.Contains(wall))&&!blue.Exists(block=>block.gameObject==hit.gameObject)){LastEditFailure="actor: "+hit.name;valid=false;}
+        bool valid=PropagateOffsets(station,min,max)&&LengthFor(end)<=10&&ValidateEdit(player+step,solids,actor);
         var proposedOffsets=new Dictionary<int,int>(offsets);
         offsets.Clear();foreach(var item in previousOffsets)offsets.Add(item.Key,item.Value);
         if(!valid||!apply)return valid;
         var before=Capture();offsets.Clear();foreach(var item in proposedOffsets)offsets.Add(item.Key,item.Value);
         RebuildKeepingMaterials(before);
+        return true;
+    }
+
+    private bool PropagateOffsets(int station,int min,int max)
+    {
+        var pending=new Queue<int>();pending.Enqueue(station);
+        while(pending.Count>0)
+        {
+            int current=pending.Dequeue(),value=OffsetAt(current);
+            for(int neighbour=current-1;neighbour<=current+1;neighbour+=2)
+            {
+                if(neighbour<min||neighbour>=max||Mathf.Abs(value-OffsetAt(neighbour))<=1)continue;
+                if(IsBaseStation(neighbour))return false;
+                offsets[neighbour]=value-System.Math.Sign(value-OffsetAt(neighbour));pending.Enqueue(neighbour);
+            }
+        }
+        return true;
+    }
+
+    public bool OverlapsPaper(Vector2Int actorCell)
+    {
+        var cells=new List<Vector2Int>(Footprint(end,true));
+        var area=Area(end);int min=Axis==1?area.xMin:area.yMin,max=Axis==1?area.xMax:area.yMax;
+        var bounds=new Bounds(new Vector3(actorCell.x,actorCell.y,0),new Vector3(.62f,.62f,1));
+        foreach(var cell in cells)
+        {
+            var original=originalCells[cell];int station=Axis==1?original.x:original.y;
+            int left=BoundaryShift(station,min,max),right=BoundaryShift(station+1,min,max);
+            Vector2 a,b,c,d;
+            if(Axis==1){a=new Vector2(station-.5f,original.y-.5f+left);b=new Vector2(station+.5f,original.y-.5f+right);c=b+Vector2.up;d=a+Vector2.up;}
+            else{a=new Vector2(original.x-.5f+left,station-.5f);b=new Vector2(original.x-.5f+right,station+.5f);c=b+Vector2.right;d=a+Vector2.right;}
+            if(TriangleHits(a,b,c,bounds)||TriangleHits(a,c,d,bounds))return true;
+        }
+        return false;
+    }
+
+    private bool ValidateEdit(Vector2Int nextPlayer,LayerMask solids,Collider actor)
+    {
+        if(OverlapsPaper(nextPlayer)){LastEditFailure="paper overlaps actor";return false;}
+        foreach(var cell in Footprint(end,true))
+        {
+            if(!grid.Contains(cell)){LastEditFailure="edge "+cell;return false;}
+            foreach(var hit in Physics.OverlapBox(World(cell),Vector3.one*.44f,Quaternion.identity,solids,QueryTriggerInteraction.Ignore))
+                if(hit!=actor&&!(hit is BoxCollider wall&&walls.Contains(wall))&&!blue.Exists(block=>block.gameObject==hit.gameObject)){LastEditFailure=hit.name;return false;}
+        }
+        foreach(var hit in Physics.OverlapBox(World(nextPlayer),Vector3.one*.35f,Quaternion.identity,solids,QueryTriggerInteraction.Ignore))
+            if(hit!=actor&&!(hit is BoxCollider wall&&walls.Contains(wall))&&!blue.Exists(block=>block.gameObject==hit.gameObject))return false;
         return true;
     }
 
@@ -316,7 +318,13 @@ internal sealed class PrototypeFanhua
     public void SetEnd(Vector2Int target)
     {
         if(expansionDirection==Vector2Int.zero&&target!=anchor)expansionDirection=new Vector2Int(System.Math.Sign(target.x-anchor.x),System.Math.Sign(target.y-anchor.y));
-        var before=Capture();end = target;
+        var before=Capture();
+        var area=Area(target);bool horizontal=Axis==1;
+        int min=horizontal?area.xMin:area.yMin,max=horizontal?area.xMax:area.yMax;
+        var newOffsets=new Dictionary<int,int>();
+        for(int station=min;station<max;station++)newOffsets[station]=ExtensionOffset(station);
+        offsets.Clear();foreach(var pair in newOffsets)offsets.Add(pair.Key,pair.Value);
+        end = target;
         RebuildKeepingMaterials(before);
     }
 
@@ -343,7 +351,7 @@ internal sealed class PrototypeFanhua
         {
             bool horizontal=Axis==0?target.y==anchor.y:Axis==1;
             int station=horizontal?cell.x:cell.y;
-            int shift=offsets.TryGetValue(station,out int v)?v:0;
+            int shift=ExtensionOffset(station);
             var mapped=cell+(horizontal?Vector2Int.up:Vector2Int.right)*shift;
             originalCells[mapped]=cell;
             if(materialOnly && Axis!=0)
@@ -500,12 +508,25 @@ internal sealed class PrototypeFanhua
         }
     }
 
+    private bool IsBaseStation(int station)
+    {
+        int first=Axis==1?anchor.x:anchor.y;
+        return station==first||station==first+1;
+    }
+    private int ExtensionOffset(int station)
+    {
+        var area=Area(end);bool horizontal=Axis==0?end.y==anchor.y:Axis==1;
+        int min=horizontal?area.xMin:area.yMin,max=horizontal?area.xMax:area.yMax;
+        return OffsetAt(Mathf.Clamp(station,min,max-1));
+    }
     private int OffsetAt(int station) => offsets.TryGetValue(station,out int value)?value:0;
     private int BoundaryShift(int boundary,int min,int max)
     {
         if(boundary<=min)return OffsetAt(min);
         if(boundary>=max)return OffsetAt(max-1);
-        return Mathf.Max(OffsetAt(boundary-1),OffsetAt(boundary));
+        int a=OffsetAt(boundary-1),b=OffsetAt(boundary);
+        // A downward fold must move both edges, just as an upward fold does.
+        return Mathf.Abs(a)>=Mathf.Abs(b)?a:b;
     }
 
     private void BuildRibbonView()
