@@ -14,6 +14,7 @@ internal sealed class PrototypeFanhua
         public int PaletteMode;
         public Vector2Int Direction;
         public PrototypeFallingBlock.State[] Blue;
+        public Vector2Int[] BlueOrigins;
         public bool[] Filled;
         public Dictionary<int,int> Offsets;
         public bool[] Broken;
@@ -28,6 +29,7 @@ internal sealed class PrototypeFanhua
     private readonly List<BoxCollider> walls = new List<BoxCollider>();
     private readonly HashSet<BoxCollider> blueWalls = new HashSet<BoxCollider>();
     private readonly List<PrototypeFallingBlock> blue = new List<PrototypeFallingBlock>();
+    private readonly Dictionary<PrototypeFallingBlock,Vector2Int> blueOrigins=new Dictionary<PrototypeFallingBlock,Vector2Int>();
     private readonly List<GameObject> red = new List<GameObject>();
     private readonly Dictionary<GameObject,BoxCollider2D> redProjections = new Dictionary<GameObject,BoxCollider2D>();
     private readonly HashSet<GameObject> filled = new HashSet<GameObject>();
@@ -77,6 +79,7 @@ internal sealed class PrototypeFanhua
             PaletteMode = paletteMode,
             Direction = expansionDirection,
             Blue = blue.ConvertAll(block => block.CurrentState).ToArray(),
+            BlueOrigins=blue.ConvertAll(block=>blueOrigins[block]).ToArray(),
             Filled = red.ConvertAll(tile => filled.Contains(tile)).ToArray(),
             Offsets = new Dictionary<int,int>(offsets),
             Broken = red.ConvertAll(tile => broken.Contains(tile)).ToArray()
@@ -139,7 +142,7 @@ internal sealed class PrototypeFanhua
         Build();
         if(released) foreach(var saved in state.Blue) CreateBlue(Vector2Int.RoundToInt(saved.Position));
         for (int i = 0; i < blue.Count; i++)
-            blue[i].RestoreWorldPosition(state.Blue[i]);
+        {blue[i].RestoreWorldPosition(state.Blue[i]);if(state.BlueOrigins!=null)blueOrigins[blue[i]]=state.BlueOrigins[i];}
         for (int i = 0; i < red.Count; i++)
             if (state.Filled[i])
                 Fill(red[i]);
@@ -184,7 +187,10 @@ internal sealed class PrototypeFanhua
 
     public bool TryPush(Vector2Int player,Vector2Int step,LayerMask solids,Collider actor,bool apply)
     {
-        if(platformMode||!Contains(player+step,end))return false;
+        if(platformMode)return false;
+        if(TryBendDetachedBlue(player,step,solids,actor,apply,out bool blueContact))return true;
+        if(blueContact)return false;
+        if(!Contains(player+step,end)&&!TouchesBondedBlue(player+step))return false;
         if(Axis==0)return false;
         var axis=PullAxis(end);
         if(step==axis)return false; // The base cannot translate the flower.
@@ -192,17 +198,18 @@ internal sealed class PrototypeFanhua
         {
             // Compress from the moving end, without returning to the folded base.
             int station=Axis==1?end.x:end.y;
-            var contact=originalCells[player+step];
+            var contact=originalCells.TryGetValue(player+step,out var hitCell)?hitCell:player+step;
             if((Axis==1?contact.x:contact.y)!=station)return false;
             var target=end+step;
             if(Area(target).size!=Area(end).size- (Axis==1?Vector2Int.right:Vector2Int.up))return false;
+            bool bondedBlue=HasBondedBlueRibbon;
             var before=Capture();var oldEnd=end;var previous=new Dictionary<int,int>(offsets);
             int tipOffset=OffsetAt(station);end=target;
             int newTip=Axis==1?end.x:end.y;
             bool valid=!IsBaseStation(newTip)||tipOffset==0;
             offsets.Remove(station);offsets[newTip]=tipOffset;
             var area=Area(end);int min=Axis==1?area.xMin:area.yMin,max=Axis==1?area.xMax:area.yMax;
-            valid=valid&&PropagateOffsets(newTip,min,max)&&LengthFor(end)<=10&&ValidateEdit(player+step,solids,actor);
+            valid=valid&&PropagateOffsets(newTip,min,max)&&LengthFor(end)<=10&&ValidateEdit(player+step,solids,actor,bondedBlue);
             if(valid&&apply){RebuildKeepingMaterials(before);return true;}
             end=oldEnd;offsets.Clear();foreach(var pair in previous)offsets.Add(pair.Key,pair.Value);
             return valid;
@@ -218,16 +225,37 @@ internal sealed class PrototypeFanhua
         foreach(var cell in Footprint(end,true))
         {int d=Mathf.Abs(cell.x-player.x)+Mathf.Abs(cell.y-player.y);if(d<nearest){nearest=d;chosen=cell;}}
         if(Contains(player+step,end)){chosen=player+step;nearest=1;}
+        if(nearest>1&&TouchesBondedBlue(player+step))
+        {
+            foreach(var cell in new List<Vector2Int>(Footprint(end,true)))
+                if((Axis==1?cell.x==player.x+step.x:cell.y==player.y+step.y)&&ColorAt(cell)==TileColor.Blue){chosen=cell;nearest=1;break;}
+        }
         if(nearest>1)return false;
         var original=originalCells[chosen];int station=Axis==1?original.x:original.y;
         // The original two-cell base is permanently anchored.
         if(IsBaseStation(station))return false;
+        bool bondedBlue=HasBondedBlueRibbon;
         int old=offsets.TryGetValue(station,out int v)?v:0;
         int next=old+(Axis==1?step.y:step.x);
         var area=Area(end);int min=Axis==1?area.xMin:area.yMin;int max=Axis==1?area.xMax:area.yMax;
         var previousOffsets=new Dictionary<int,int>(offsets);
         offsets[station]=next;
-        bool valid=PropagateOffsets(station,min,max)&&LengthFor(end)<=10&&ValidateEdit(player+step,solids,actor);
+        bool valid=true;
+        if(Mathf.Abs(next)<Mathf.Abs(old))
+        {
+            var crest=new Queue<int>();crest.Enqueue(station);var visited=new HashSet<int>{station};
+            while(crest.Count>0&&valid)
+            {
+                int current=crest.Dequeue();
+                foreach(int neighbour in new[]{current-1,current+1})
+                {
+                    if(neighbour<min||neighbour>=max||!visited.Add(neighbour))continue;
+                    int value=OffsetAt(neighbour);if(value!=old)continue;
+                    if(IsBaseStation(neighbour)){valid=false;break;}offsets[neighbour]=next;crest.Enqueue(neighbour);
+                }
+            }
+        }
+        valid=valid&&PropagateOffsets(station,min,max)&&LengthFor(end)<=10&&ValidateEdit(player+step,solids,actor,bondedBlue);
         var proposedOffsets=new Dictionary<int,int>(offsets);
         offsets.Clear();foreach(var item in previousOffsets)offsets.Add(item.Key,item.Value);
         if(!valid||!apply)return valid;
@@ -252,9 +280,10 @@ internal sealed class PrototypeFanhua
         return true;
     }
 
-    public bool OverlapsPaper(Vector2Int actorCell)
+    public bool OverlapsPaper(Vector2Int actorCell) => OverlapsPaperShape(actorCell,false);
+    private bool OverlapsPaperShape(Vector2Int actorCell,bool previewBondedBlue)
     {
-        var cells=new List<Vector2Int>(Footprint(end,true));
+        var cells=new List<Vector2Int>(Footprint(end,true,previewBondedBlue));
         var area=Area(end);int min=Axis==1?area.xMin:area.yMin,max=Axis==1?area.xMax:area.yMax;
         var bounds=new Bounds(new Vector3(actorCell.x,actorCell.y,0),new Vector3(.62f,.62f,1));
         foreach(var cell in cells)
@@ -269,9 +298,9 @@ internal sealed class PrototypeFanhua
         return false;
     }
 
-    private bool ValidateEdit(Vector2Int nextPlayer,LayerMask solids,Collider actor)
+    private bool ValidateEdit(Vector2Int nextPlayer,LayerMask solids,Collider actor,bool previewBondedBlue=false)
     {
-        if(OverlapsPaper(nextPlayer)){LastEditFailure="paper overlaps actor";return false;}
+        if(OverlapsPaperShape(nextPlayer,previewBondedBlue)){LastEditFailure="paper overlaps actor";return false;}
         foreach(var cell in Footprint(end,true))
         {
             if(!grid.Contains(cell)){LastEditFailure="edge "+cell;return false;}
@@ -283,11 +312,188 @@ internal sealed class PrototypeFanhua
         return true;
     }
 
+    private bool HasYellowPartner(PrototypeFallingBlock block)
+    {
+        if(Axis==0||block.CurrentState.Lost)return false;
+        var original=blueOrigins[block];var mate=original;
+        if(Axis==1)mate.y=original.y==anchor.y?anchor.y+1:anchor.y;
+        else mate.x=original.x==anchor.x?anchor.x+1:anchor.x;
+        // Yellow exists only in palette C or the directional blue/yellow pair.
+        if(paletteMode==2)return true;
+        if(paletteMode==3)return false;
+        var direction=PullAxis(end);if(alternatePalette)direction=-direction;
+        if(Axis==1)return direction.x>0&&mate.y==anchor.y;
+        return direction.y<0&&mate.x==anchor.x+1;
+
+    }
+    private bool IsBondedBlue(PrototypeFallingBlock block)
+    {
+        if(!HasYellowPartner(block))return false;
+        var original=blueOrigins[block];int station=Axis==1?original.x:original.y;
+        return Vector2.Distance(block.CurrentState.Position,original+(Axis==1?Vector2Int.up:Vector2Int.right)*OffsetAt(station))<.01f;
+    }
+    public IEnumerable<PrototypeFallingBlock> BondedBlue
+    {get {foreach(var block in blue)if(IsBondedBlue(block))yield return block;}}
+    private bool HasBondedBlueRibbon => blue.Count>0&&blue.TrueForAll(IsBondedBlue);
+
+    private bool AttachedBlueAt(Vector2Int original,Vector2Int position)
+    {
+        foreach(var block in blue)if(!block.CurrentState.Lost&&blueOrigins[block]==original&&Vector2.Distance(block.CurrentState.Position,position)<.01f)return true;
+        return HasBondedBlueRibbon&&Area(end).Contains(original);
+    }
+
+    private static bool OnBlueSpan(Vector2Int cell,Vector2 a,Vector2 b)
+    {
+        int length=Mathf.CeilToInt(Mathf.Max(Mathf.Abs(a.x-b.x),Mathf.Abs(a.y-b.y)));
+        for(int i=0;i<=length;i++)if(Vector2Int.RoundToInt(Vector2.Lerp(a,b,length==0?0:i/(float)length))==cell)return true;
+        return false;
+    }
+    private bool TouchesBondedBlue(Vector2Int cell)
+    {
+        if(!HasBondedBlueRibbon)return false;
+        var origin=blueOrigins[blue[0]];bool positive=Axis==1?origin.y>anchor.y:origin.x==anchor.x;
+        var side=Axis==1?(positive?Vector2.up:Vector2.down):(positive?Vector2.left:Vector2.right);
+        var centers=PaperCenters();var bounds=new Bounds(new Vector3(cell.x,cell.y,0),new Vector3(.62f,.62f,1));
+        for(int i=1;i<centers.Count;i++)
+        {
+            var a=new Vector2(centers[i-1].x,centers[i-1].z);var b=new Vector2(centers[i].x,centers[i].z);
+            if(TriangleHits(a,b,b+side,bounds)||TriangleHits(a,b+side,a+side,bounds))return true;
+        }
+        return false;
+    }
+
+    public bool HasBlueCell(Vector2Int cell)
+    {
+        if(Axis==0)return false;
+        if(TouchesBondedBlue(cell))return true;
+        var chain=new List<PrototypeFallingBlock>(blue);chain.Sort((a,b)=>(Axis==1?blueOrigins[a].x:blueOrigins[a].y).CompareTo(Axis==1?blueOrigins[b].x:blueOrigins[b].y));
+        for(int i=0;i<chain.Count;i++)
+        {
+            if(chain[i].CurrentState.Lost||!chain[i].CurrentState.Water)continue;
+            if(Vector2Int.RoundToInt(chain[i].CurrentState.Position)==cell)return true;
+            if(i>0&&!chain[i-1].CurrentState.Lost&&OnBlueSpan(cell,chain[i-1].CurrentState.Position,chain[i].CurrentState.Position))return true;
+        }
+        return false;
+    }
+
+    private bool TryBendDetachedBlue(Vector2Int player,Vector2Int step,LayerMask solids,Collider actor,bool apply,out bool contact)
+    {
+        contact=false;if(Axis==0)return false;
+        var chain=new List<PrototypeFallingBlock>(blue);chain.Sort((a,b)=>(Axis==1?blueOrigins[a].x:blueOrigins[a].y).CompareTo(Axis==1?blueOrigins[b].x:blueOrigins[b].y));
+        int chosen=chain.FindIndex(b=>b.CurrentState.Water&&!b.CurrentState.Lost&&Vector2Int.RoundToInt(b.CurrentState.Position)==player+step);
+        int bridgeOther=-1;
+        if(chosen<0)
+            for(int i=1;i<chain.Count;i++)
+                if(!chain[i-1].CurrentState.Lost&&!chain[i].CurrentState.Lost&&OnBlueSpan(player+step,chain[i-1].CurrentState.Position,chain[i].CurrentState.Position))
+                {chosen=i;bridgeOther=i-1;break;}
+        if(chosen<0)return false;
+        var origin=blueOrigins[chain[chosen]];int station=Axis==1?origin.x:origin.y;
+        if(bridgeOther<0&&AttachedBlueAt(origin,origin+(Axis==1?Vector2Int.up:Vector2Int.right)*OffsetAt(station)))return false;
+        contact=true;if(IsBaseStation(station))return false;
+        var positions=chain.ConvertAll(b=>Vector2Int.RoundToInt(b.CurrentState.Position));positions[chosen]+=step;
+        var pending=new Queue<int>();pending.Enqueue(chosen);
+        if(bridgeOther>=0)
+        {var key=blueOrigins[chain[bridgeOther]];if(IsBaseStation(Axis==1?key.x:key.y))return false;positions[bridgeOther]+=step;pending.Enqueue(bridgeOther);}
+        while(pending.Count>0)
+        {
+            int index=pending.Dequeue();
+            foreach(int neighbour in new[]{index-1,index+1})
+            {
+                if(neighbour<0||neighbour>=chain.Count||chain[neighbour].CurrentState.Lost)continue;
+                var delta=positions[index]-positions[neighbour];
+                if(Mathf.Abs(delta.x)<=1&&Mathf.Abs(delta.y)<=1)continue;
+                var key=blueOrigins[chain[neighbour]];if(IsBaseStation(Axis==1?key.x:key.y))return false;
+                positions[neighbour]+=new Vector2Int(Mathf.Abs(delta.x)>1?System.Math.Sign(delta.x):0,Mathf.Abs(delta.y)>1?System.Math.Sign(delta.y):0);pending.Enqueue(neighbour);
+            }
+        }
+        int length=0;
+        for(int i=0;i<chain.Count;i++)
+        {
+            if(chain[i].CurrentState.Lost)continue;
+            var cell=positions[i];if(!grid.Contains(cell)||cell==player+step)return false;
+            if(i>0&&!chain[i-1].CurrentState.Lost)length+=Mathf.Abs(cell.x-positions[i-1].x)+Mathf.Abs(cell.y-positions[i-1].y);
+            foreach(var hit in Physics.OverlapBox(World(cell),Vector3.one*.44f,Quaternion.identity,solids,QueryTriggerInteraction.Ignore))
+                if(hit!=actor&&!chain.Exists(b=>b.gameObject==hit.gameObject))return false;
+        }
+        if(length>11)return false;
+        for(int i=1;i<chain.Count;i++)
+            if(!chain[i-1].CurrentState.Lost&&!chain[i].CurrentState.Lost&&OnBlueSpan(player+step,positions[i-1],positions[i]))return false;
+        if(!apply)return true;
+        for(int i=0;i<chain.Count;i++)if(!chain[i].CurrentState.Lost){var state=chain[i].CurrentState;state.Position=positions[i];state.Velocity=Vector2.zero;chain[i].RestoreWorldPosition(state);chain[i].SetWaterView(false);}
+        return true;
+    }
+
+    public IEnumerable<KeyValuePair<PrototypeFallingBlock,PrototypeFallingBlock>> BlueLinks
+    {
+        get
+        {
+            var chain=new List<PrototypeFallingBlock>(blue);chain.Sort((a,b)=>(Axis==1?blueOrigins[a].x:blueOrigins[a].y).CompareTo(Axis==1?blueOrigins[b].x:blueOrigins[b].y));
+            for(int i=1;i<chain.Count;i++)
+            {if(!chain[i-1].CurrentState.Lost&&!chain[i].CurrentState.Lost)yield return new KeyValuePair<PrototypeFallingBlock,PrototypeFallingBlock>(chain[i-1],chain[i]);}
+        }
+    }
+
+    public void AppendBluePipe(List<Vector3> vertices,List<int> triangles)
+    {
+        if(HasBondedBlueRibbon)
+        {
+            var original=blueOrigins[blue[0]];bool side=Axis==1?original.y>anchor.y:original.x==anchor.x;
+            var mesh=FanhuaPaperMesh.Ribbon(PaperCenters(),side,Axis==1);int first=vertices.Count;
+            vertices.AddRange(mesh.vertices);foreach(int index in mesh.triangles)triangles.Add(first+index);Object.Destroy(mesh);return;
+        }
+        var chain=new List<PrototypeFallingBlock>(blue);chain.Sort((a,b)=>(Axis==1?blueOrigins[a].x:blueOrigins[a].y).CompareTo(Axis==1?blueOrigins[b].x:blueOrigins[b].y));
+        var run=new List<Vector3>();bool positive=true;
+        void Flush()
+        {
+            if(run.Count==0)return;
+            var centers=new List<Vector3>();var axis=Axis==1?Vector3.right:Vector3.forward;
+            float baseline=Axis==1?run[0].z:run[0].x;
+            for(int edge=0;edge<=run.Count;edge++)
+            {
+                var point=edge==run.Count?run[edge-1]+axis*.5f:run[edge]-axis*.5f;
+                if(edge>0&&edge<run.Count)
+                {
+                    float a=Axis==1?run[edge-1].z:run[edge-1].x,b=Axis==1?run[edge].z:run[edge].x;
+                    float value=Mathf.Abs(a-baseline)>=Mathf.Abs(b-baseline)?a:b;
+                    if(Axis==1)point.z=value;else point.x=value;
+                }
+                centers.Add(point);
+            }
+            var mesh=FanhuaPaperMesh.Ribbon(centers,positive,Axis==1);int offset=vertices.Count;vertices.AddRange(mesh.vertices);foreach(int index in mesh.triangles)triangles.Add(offset+index);Object.Destroy(mesh);run.Clear();
+        }
+        foreach(var block in chain)
+        {
+            var original=blueOrigins[block];
+            if(block.CurrentState.Lost||!block.CurrentState.Water){Flush();continue;}
+            positive=Axis==1?original.y>anchor.y:original.x==anchor.x;
+            var p=block.CurrentState.Position;
+            var center=Axis==1?new Vector3(p.x,.5f,p.y+(positive?-.5f:.5f)):new Vector3(p.x+(positive?.5f:-.5f),.5f,p.y);
+            if(run.Count==0||run[run.Count-1]!=center)run.Add(center);
+        }
+        Flush();
+    }
+
     private void RebuildKeepingMaterials(State before)
     {
         // Fluid sources stay in world space, with stable order and spent volume.
         var cooled=cooledStrips;var shattered=shatteredStrips;
         foreach(var tile in red){if(filled.Contains(tile))cooled.Add(redOriginal[tile]-before.Anchor);if(broken.Contains(tile))shattered.Add(redOriginal[tile]-before.Anchor);}
+        var area=Area(end);int min=Axis==1?area.xMin:area.yMin,max=Axis==1?area.xMax:area.yMax;
+        foreach(var block in blue)
+        {
+            if(!block.CurrentState.Water||block.CurrentState.Lost)continue;
+            var original=blueOrigins[block];int station=Axis==1?original.x:original.y;
+            int oldShift=before.Offsets.TryGetValue(station,out int saved)?saved:0;
+            var expected=original+(Axis==1?Vector2Int.up:Vector2Int.right)*oldShift;
+            if(Vector2.Distance(block.CurrentState.Position,expected)>.01f)continue;
+            int mapped=Mathf.Clamp(station,min,max-1);
+            // The active end keeps its blue material when compressed or stretched.
+            int oldTip=Axis==1?before.End.x:before.End.y;
+            if(station==oldTip)mapped=Axis==1?end.x:end.y;
+            if(Axis==1)original.x=mapped;else original.y=mapped;
+            var state=block.CurrentState;state.Position=original+(Axis==1?Vector2Int.up:Vector2Int.right)*OffsetAt(mapped);state.Velocity=Vector2.zero;
+            blueOrigins[block]=original;block.RestoreWorldPosition(state);
+        }
         released=before.Released || blue.Exists(b=>b.CurrentState.Water||b.CurrentState.Lost||b.CurrentState.Gray);
         Build(released);
         foreach(var tile in red){var key=redOriginal[tile]-anchor;if(cooled.Contains(key))Fill(tile);if(shattered.Contains(key))Break(tile);}
@@ -344,7 +550,7 @@ internal sealed class PrototypeFanhua
 
     private bool Contains(Vector2Int cell, Vector2Int target) {foreach(var candidate in Footprint(target,true))if(candidate==cell)return true;return false;}
 
-    private IEnumerable<Vector2Int> Footprint(Vector2Int target,bool materialOnly=false)
+    private IEnumerable<Vector2Int> Footprint(Vector2Int target,bool materialOnly=false,bool previewBondedBlue=false)
     {
         originalCells.Clear();
         foreach (Vector2Int cell in Area(target).allPositionsWithin)
@@ -357,7 +563,7 @@ internal sealed class PrototypeFanhua
             if(materialOnly && Axis!=0)
             {
                 var color=ColorAt(mapped);var key=cell-anchor;
-                if(((released||blue.Exists(b=>b.CurrentState.Water||b.CurrentState.Lost||b.CurrentState.Gray))&&color==TileColor.Blue)||(color==TileColor.Red&&(cooledStrips.Contains(key)||shatteredStrips.Contains(key))))continue;
+                if(((released||blue.Exists(b=>b.CurrentState.Water||b.CurrentState.Lost||b.CurrentState.Gray))&&color==TileColor.Blue&&!previewBondedBlue&&!AttachedBlueAt(cell,mapped))||(color==TileColor.Red&&(cooledStrips.Contains(key)||shatteredStrips.Contains(key))))continue;
             }
             yield return mapped;
         }
@@ -416,7 +622,7 @@ internal sealed class PrototypeFanhua
     private void CreateBlue(Vector2Int cell)
     {
         var block=Tile(cell,new Color(.24f,.49f,.81f),1f).AddComponent<PrototypeFallingBlock>();
-        block.CreateFootprint(platform,canHangInGrid:true);block.HideSolidInGrid=true;blue.Add(block);
+        block.CreateFootprint(platform,canHangInGrid:true);block.HideSolidInGrid=true;block.EnterableBlue=WaterRules;block.BelongsToFlower=true;blue.Add(block);blueOrigins[block]=originalCells.TryGetValue(cell,out var original)?original:cell;
     }
 
     private void Build(bool keepFluid=false)
@@ -436,7 +642,7 @@ internal sealed class PrototypeFanhua
         if(keepFluid)foreach(var source in blue)objects.Add(source.gameObject);
         walls.Clear();
         blueWalls.Clear();
-        if(!keepFluid)blue.Clear();
+        if(!keepFluid){blue.Clear();blueOrigins.Clear();}
         red.Clear();
         redProjections.Clear();
         filled.Clear();
@@ -529,14 +735,21 @@ internal sealed class PrototypeFanhua
         return Mathf.Abs(a)>=Mathf.Abs(b)?a:b;
     }
 
-    private void BuildRibbonView()
+    private List<Vector3> PaperCenters()
     {
-        if(Axis==0)return;
         var area=Area(end);var centers=new List<Vector3>();
         int min=Axis==1?area.xMin:area.yMin,max=Axis==1?area.xMax:area.yMax;
         for(int boundary=min;boundary<=max;boundary++)
         {int shift=BoundaryShift(boundary,min,max);
          centers.Add(Axis==1?new Vector3(boundary-.5f,.5f,anchor.y+.5f+shift):new Vector3(anchor.x+.5f+shift,.5f,boundary-.5f));}
+        return centers;
+    }
+
+    private void BuildRibbonView()
+    {
+        if(Axis==0)return;
+        var area=Area(end);var centers=PaperCenters();
+        int min=Axis==1?area.xMin:area.yMin;
         for(int band=0;band<2;band++)
         {
             var obj=new GameObject("Continuous paper band",typeof(MeshFilter),typeof(MeshRenderer));obj.transform.SetParent(world,false);
@@ -622,7 +835,7 @@ internal sealed class PrototypeFanhua
         // The 3D renderer is shared by both cameras. grid blue tiles are pushable.
         foreach (PrototypeFallingBlock block in blue)
         {
-            block.GetComponent<BoxCollider>().enabled = !platformMode && !block.CurrentState.Water && !block.CurrentState.Plugged && !block.CurrentState.Lost;
+            block.GetComponent<BoxCollider>().enabled = !platformMode && (!block.CurrentState.Water||block.EnterableBlue) && !block.CurrentState.Plugged && !block.CurrentState.Lost;
             if (platformMode)
                 block.ResumePhysics();
             else

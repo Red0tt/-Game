@@ -13,6 +13,7 @@ public sealed class Unit02WaterSimulation
         public Dictionary<Vector2Int, float> Fires = new Dictionary<Vector2Int, float>();
         public Dictionary<Vector2Int, Vector2Int> Stones = new Dictionary<Vector2Int, Vector2Int>();
         public int Tick;
+        public bool CohesiveBlue;
     }
     public readonly RectInt Bounds;
     public int SourceCount {get;private set;}
@@ -23,11 +24,12 @@ public sealed class Unit02WaterSimulation
     public IEnumerable<Vector2Int> FireCells => state.Fires.Keys;
     public IEnumerable<Vector2Int> StoneCells => state.Stones.Values;
     public int TickCount => state.Tick;
+    public bool CohesiveBlue => state.CohesiveBlue;
 
-    public Unit02WaterSimulation(RectInt bounds, Vector2Int[] anchors)
+    public Unit02WaterSimulation(RectInt bounds, Vector2Int[] anchors,bool cohesiveBlue=false)
     {
         Bounds = bounds; SourceCount = anchors.Length;
-        state = new State { Anchors = (Vector2Int[])anchors.Clone(), Spent = new float[SourceCount], Lost = new float[SourceCount] };
+        state = new State { CohesiveBlue=cohesiveBlue, Anchors = (Vector2Int[])anchors.Clone(), Spent = new float[SourceCount], Lost = new float[SourceCount] };
         for(int i=0;i<SourceCount;i++) Add(anchors[i],i,1f);
     }
     public void IncludeSources(Vector2Int[] anchors)
@@ -39,25 +41,42 @@ public sealed class Unit02WaterSimulation
         for(int j=0;j<oldCount;j++)if(!used.Contains(j))
             for(int i=0;i<order.Length;i++)if(order[i]<0){order[i]=j;used.Add(j);break;}
         // Sources already emitted remain represented; fresh paper adds only its own water.
-        state=new State{Anchors=(Vector2Int[])anchors.Clone(),Spent=new float[anchors.Length],Lost=new float[anchors.Length],Fires=old.Fires,Stones=old.Stones,Tick=old.Tick};
+        state=new State{Anchors=(Vector2Int[])anchors.Clone(),Spent=new float[anchors.Length],Lost=new float[anchors.Length],Fires=old.Fires,Stones=old.Stones,Tick=old.Tick,CohesiveBlue=old.CohesiveBlue};
         SourceCount=anchors.Length;
         foreach(var pair in old.Cells)
         {var amounts=new float[SourceCount];for(int i=0;i<SourceCount;i++)if(order[i]>=0)amounts[i]=pair.Value[order[i]];state.Cells.Add(pair.Key,amounts);}
         for(int i=0;i<SourceCount;i++)
         {if(order[i]>=0){state.Spent[i]=old.Spent[order[i]];state.Lost[i]=old.Lost[order[i]];}else Add(anchors[i],i,1);}
     }
+    private readonly List<Vector2Int> cohesiveLinks=new List<Vector2Int>();
+    public void SetCohesiveLinks(IEnumerable<Vector2Int> links){cohesiveLinks.Clear();cohesiveLinks.AddRange(links);}
+    private bool KeepsBlueLinks(Vector2Int cell,Vector2Int target)
+    {
+        foreach(var link in cohesiveLinks)
+        {
+            int neighbour=AmountFrom(cell,link.x)>.00001f?link.y:AmountFrom(cell,link.y)>.00001f?link.x:-1;
+            if(neighbour<0)continue;
+            foreach(var occupied in state.Cells.Keys)if(AmountFrom(occupied,neighbour)>.00001f)
+                if(Mathf.Abs(target.x-occupied.x)>1||Mathf.Abs(target.y-occupied.y)>1)return false;
+        }
+        return true;
+    }
+    private readonly HashSet<int> bondedSources=new HashSet<int>();
+    public void SetBondedSources(IEnumerable<int> sources){bondedSources.Clear();foreach(int source in sources)if(source>=0)bondedSources.Add(source);}
+    private bool IsBondedCell(Vector2Int cell)
+    {foreach(int source in bondedSources)if(AmountFrom(cell,source)>.00001f)return true;return false;}
     public void SetSolids(IEnumerable<Vector2Int> cells)
     {
         solid.Clear(); foreach(var cell in cells) solid.Add(cell);
         // A reshaped paper wall displaces liquid rather than leaving it inside the paper.
         foreach(var cell in new List<Vector2Int>(state.Cells.Keys))
         {
-            if(!Blocked(cell))continue;
+            if(!Blocked(cell)||(state.CohesiveBlue&&IsBondedCell(cell)))continue;
             var queue=new Queue<Vector2Int>();var seen=new HashSet<Vector2Int>{cell};queue.Enqueue(cell);
             while(queue.Count>0 && Depth(cell)>Epsilon)
             {
                 var at=queue.Dequeue();
-                foreach(var step in new[]{Vector2Int.up,Vector2Int.left,Vector2Int.right})
+                foreach(var step in state.CohesiveBlue?new[]{Vector2Int.up}:new[]{Vector2Int.up,Vector2Int.left,Vector2Int.right})
                 {var next=at+step;if(!Bounds.Contains(next)||!seen.Add(next))continue;
                  if(!Blocked(next))Transfer(cell,next,Mathf.Max(0,1f-Depth(next)));
                  queue.Enqueue(next);}
@@ -76,6 +95,7 @@ public sealed class Unit02WaterSimulation
         if(!state.Cells.TryGetValue(cell,out var amounts)) return 0;
         float total=0; foreach(float amount in amounts) total+=amount; return total;
     }
+    public float AmountFrom(Vector2Int cell,int source) => state.Cells.TryGetValue(cell,out var amounts)?amounts[source]:0;
     public float TotalWater { get { float total=0; foreach(var cell in state.Cells.Keys) total+=Depth(cell); return total; } }
     public float TotalSpent { get { float total=0; foreach(float v in state.Spent) total+=v; return total; } }
     public float TotalLost { get { float total=0; foreach(float v in state.Lost) total+=v; return total; } }
@@ -168,6 +188,7 @@ public sealed class Unit02WaterSimulation
     }
     public void Step()
     {
+        if(state.CohesiveBlue){StepCohesiveBlue();return;}
         Burn();
         var cells=new List<Vector2Int>(state.Cells.Keys);
         cells.Sort((a,b)=>a.y==b.y ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
@@ -208,6 +229,10 @@ public sealed class Unit02WaterSimulation
             }
         }
         Burn();
+        StepStones();Clean(); state.Tick++;
+    }
+    private void StepStones()
+    {
         // Bottom-up order permits a stack to fall without interpenetrating.
         var origins=new List<Vector2Int>(state.Stones.Keys);
         origins.Sort((a,b)=>state.Stones[a].y.CompareTo(state.Stones[b].y));
@@ -218,7 +243,18 @@ public sealed class Unit02WaterSimulation
             if(Bounds.Contains(below)) state.Stones[origin]=below;
             else state.Stones.Remove(origin);
         }
-        Clean(); state.Tick++;
+    }
+    private void StepCohesiveBlue()
+    {
+        Burn();
+        var cells=new List<Vector2Int>(state.Cells.Keys);cells.Sort((a,b)=>a.y==b.y?a.x.CompareTo(b.x):a.y.CompareTo(b.y));
+        foreach(var cell in cells)
+        {
+            var below=cell+Vector2Int.down;
+            // Whole blocks fall and stack; no lateral flow, equalisation or thin residue.
+            if(!IsBondedCell(cell)&&!Blocked(below)&&Depth(below)<Epsilon&&KeepsBlueLinks(cell,below))Transfer(cell,below,Depth(cell));
+        }
+        Burn();StepStones();Clean();state.Tick++;
     }
     private void Clean()
     {
@@ -238,7 +274,7 @@ public sealed class Unit02WaterSimulation
     private static State Copy(State input)
     {
         var result=new State { Anchors=(Vector2Int[])input.Anchors.Clone(), Spent=(float[])input.Spent.Clone(),
-            Lost=(float[])input.Lost.Clone(), Fires=new Dictionary<Vector2Int,float>(input.Fires), Stones=new Dictionary<Vector2Int,Vector2Int>(input.Stones), Tick=input.Tick };
+            Lost=(float[])input.Lost.Clone(), Fires=new Dictionary<Vector2Int,float>(input.Fires), Stones=new Dictionary<Vector2Int,Vector2Int>(input.Stones), Tick=input.Tick, CohesiveBlue=input.CohesiveBlue };
         foreach(var pair in input.Cells) result.Cells.Add(pair.Key,(float[])pair.Value.Clone());
         return result;
     }

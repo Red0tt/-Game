@@ -25,6 +25,8 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     public State CurrentState { get; private set; }
     public bool CanHangInGrid { get; private set; }
     public bool HideSolidInGrid { get; set; }
+    public bool EnterableBlue {get;set;}
+    public bool BelongsToFlower {get;set;}
 
     public void CreateFootprint(Transform parent, bool canHangInGrid = false)
     {
@@ -106,6 +108,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
 
     public bool TryPushCell(Vector3 direction, float strength, LayerMask solids, RectInt? grid)
     {
+        if(BelongsToFlower&&CurrentState.Water)return false;
         Vector2 target = CurrentState.Position + new Vector2(direction.x, direction.z);
         if (CurrentState.Lost || CurrentState.Plugged || strength < 1f ||
             !PrototypePushBox.TryGetPushDestination(GetComponent<BoxCollider>(), direction, solids, out bool supported) ||
@@ -148,7 +151,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         usesWaterViews = true;
         waterView = platformMode;
         GetComponent<Renderer>().enabled = !CurrentState.Lost && (!CurrentState.Water && (!platformMode || CurrentState.Plugged || CurrentState.Gray)) && (platformMode || !HideSolidInGrid || CurrentState.Gray);
-        GetComponent<BoxCollider>().enabled = !platformMode && !CurrentState.Lost && !CurrentState.Water;
+        GetComponent<BoxCollider>().enabled = !platformMode && !CurrentState.Lost && (!CurrentState.Water||EnterableBlue);
     }
 
     internal Collider2D WaterShape => footprint.GetComponent<Collider2D>();

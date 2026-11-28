@@ -91,12 +91,15 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         {
             var anchors=new Vector2Int[sources.Count];
             for(int i=0;i<sources.Count;i++) anchors[i]=Vector2Int.RoundToInt(sources[i].CurrentState.Position);
-            simulation=new Unit02WaterSimulation(player.WaterGrid,anchors);
+            simulation=new Unit02WaterSimulation(player.WaterGrid,anchors,true);
         }
+        var links=new List<Vector2Int>();
+        foreach(var flower in flowers)foreach(var pair in flower.BlueLinks)links.Add(new Vector2Int(sources.IndexOf(pair.Key),sources.IndexOf(pair.Value)));
+        simulation.SetCohesiveLinks(links);
         simulation.IncludeSources(sources.ConvertAll(source=>Vector2Int.RoundToInt(source.CurrentState.Position)).ToArray());
         for(int i=0;i<sources.Count;i++)
         {
-            var source=sources[i];
+            var source=sources[i];source.EnterableBlue=true;
             simulation.MoveSource(i,Vector2Int.RoundToInt(source.CurrentState.Position));
             if(simulation.Remaining(i)<.00001f) source.Discard();
             else if(!source.CurrentState.Lost) { source.SetWater(true); source.StopPhysics(); }
@@ -105,10 +108,14 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     internal void SynchronizePaper(PrototypeFanhua[] activeFlowers)
     {
         if(simulation==null)return;
-        flowers=activeFlowers;RebuildTerrain();UpdatePools();RenderPools();
+        flowers=activeFlowers;
+        for(int i=0;i<sources.Count;i++)if(sources[i]!=null)simulation.MoveSource(i,Vector2Int.RoundToInt(sources[i].CurrentState.Position));
+        RebuildTerrain();UpdatePools();RenderPools();
     }
     private void RebuildTerrain()
     {
+        var bonds=new List<int>();foreach(var flower in flowers)foreach(var block in flower.BondedBlue)bonds.Add(sources.IndexOf(block));
+        simulation.SetBondedSources(bonds);
         var solid=new HashSet<Vector2Int>();
         foreach(var shape in player.WaterStaticSolids)
         {
@@ -131,6 +138,14 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     {
         Bind(activeFlowers); RebuildTerrain(); clock+=seconds;
         while(clock>=flowInterval) { simulation.Step(); clock-=flowInterval; }
+        if(simulation.CohesiveBlue)
+            for(int i=0;i<sources.Count;i++)
+            {
+                foreach(var cell in simulation.Cells)
+                    if(simulation.AmountFrom(cell,i)>.00001f)
+                    {var state=sources[i].CurrentState;state.Position=cell;state.Velocity=Vector2.zero;sources[i].RestoreWorldPosition(state);break;}
+                sources[i].SetWaterView(platformMode);
+            }
         ApplyCooling();
         foreach(var flower in flowers){flower.ResolveUnsupportedRed();foreach(var cell in flower.BrokenFireCells)simulation.RemoveFire(cell);}
         for(int i=0;i<sources.Count;i++) if(simulation.Remaining(i)<.00001f) sources[i].Discard();
@@ -200,25 +215,27 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     {
         if(waterMaterial==null)
         {
-            waterMaterial=new Material(Shader.Find("Standard")); waterMaterial.color=new Color(.12f,.5f,.9f,.6f);
-            waterMaterial.SetFloat("_Mode",3); waterMaterial.SetInt("_SrcBlend",5); waterMaterial.SetInt("_DstBlend",10);
-            waterMaterial.SetInt("_ZWrite",0); waterMaterial.EnableKeyword("_ALPHAPREMULTIPLY_ON"); waterMaterial.renderQueue=3000;
+            waterMaterial=new Material(Shader.Find("Standard"));waterMaterial.color=new Color(.24f,.49f,.81f);
+
         }
         if(waterView==null)
         {
-            waterView=new GameObject("Continuous finite water",typeof(MeshFilter),typeof(MeshRenderer));waterView.transform.SetParent(transform.parent,false);
-            waterMesh=new Mesh{name="Connected water surface"};waterView.GetComponent<MeshFilter>().sharedMesh=waterMesh;waterView.GetComponent<Renderer>().sharedMaterial=waterMaterial;
+            waterView=new GameObject("Enterable falling blue paper",typeof(MeshFilter),typeof(MeshRenderer));waterView.transform.SetParent(transform.parent,false);
+            waterMesh=new Mesh{name="Cohesive blue pleats"};waterView.GetComponent<MeshFilter>().sharedMesh=waterMesh;waterView.GetComponent<Renderer>().sharedMaterial=waterMaterial;
         }
         var vertices=new List<Vector3>();var triangles=new List<int>();
+        if(flowers!=null)foreach(var flower in flowers)flower.AppendBluePipe(vertices,triangles);
         foreach(var pool in pools)
         {
-            int n=vertices.Count;float h=platformMode?.5f:.035f;
-            // Keep the actual finite-volume footprint when returning to 2.5D.
-            // A thin remainder never expands back into an entire floor tile.
-            vertices.AddRange(new[]{new Vector3(pool.xMin,h,pool.yMin),new Vector3(pool.xMin,h,pool.yMax),new Vector3(pool.xMax,h,pool.yMax),new Vector3(pool.xMax,h,pool.yMin)});
-            triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3,n+2,n+1,n,n+3,n+2,n});
+            bool owned=false;var cell=Vector2Int.RoundToInt(pool.center);
+            if(simulation!=null)for(int i=0;i<sources.Count;i++)if(sources[i].BelongsToFlower&&simulation.AmountFrom(cell,i)>.00001f){owned=true;break;}
+            if(owned)continue;
+            int n=vertices.Count;
+            var piece=FanhuaPaperMesh.Ribbon(new List<Vector3>{new Vector3(pool.xMin,.5f,pool.yMin),new Vector3(pool.xMax,.5f,pool.yMin)},true);
+            vertices.AddRange(piece.vertices);foreach(int index in piece.triangles)triangles.Add(n+index);Destroy(piece);
+
         }
-        waterMesh.Clear();waterMesh.SetVertices(vertices);waterMesh.SetTriangles(triangles,0);waterMesh.SetNormals(new List<Vector3>(System.Array.ConvertAll(vertices.ToArray(),v=>Vector3.up)));waterMesh.RecalculateBounds();
+        waterMesh.Clear();waterMesh.SetVertices(vertices);waterMesh.SetTriangles(triangles,0);waterMesh.RecalculateNormals();waterMesh.RecalculateBounds();
         waterView.SetActive(vertices.Count>0);
     }
 
@@ -254,22 +271,11 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     internal bool Swim(Rigidbody2D body,Vector2 input,bool jump)
     {
         if(!Wet(body.position)) return false;
-        float surface=float.NegativeInfinity;
-        // Follow only a contiguous wet column; a disconnected falling droplet above
-        // cannot turn deep water into an artificial surface launch point.
-        var column=new Vector2Int(Mathf.FloorToInt(body.position.x+.5f),Mathf.FloorToInt(body.position.y+.5f));
-        for(int n=0;n<player.WaterGrid.height;n++)
-        {
-            float depth=simulation.Depth(column);
-            surface=column.y-.5f+depth;
-            if(depth<.999f || simulation.Depth(column+Vector2Int.up)<.0001f) break;
-            column+=Vector2Int.up;
-        }
-        if(body.velocity.y>3f && body.position.y>surface-.3f) return false;
+        // The character can crawl through the blue paper, without buoyancy or automatic ascent.
         body.gravityScale=0;
-        body.velocity=new Vector2(input.x*3f,Mathf.Min(input.y!=0?input.y*2.5f:1.2f,(surface-.05f-body.position.y)/Time.fixedDeltaTime));
-        if(jump && simulation.HasSupport(column) && body.position.y>surface-.3f)
-        { body.gravityScale=1; body.velocity=new Vector2(input.x*4f,Mathf.Sqrt(-2*Physics2D.gravity.y*1.2f)); }
+        body.velocity=new Vector2(input.x*3f,input.y*2.5f);
+        if(jump)body.velocity=new Vector2(input.x*3f,4f);
+
         return true;
     }
     internal bool IsDangerous(Bounds body)
@@ -283,14 +289,15 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     internal bool TryMapBlocksToGrid(PrototypeFallingBlock[] sceneBlocks,PrototypeFanhua[] activeFlowers,
         LayerMask solids,RectInt grid,Vector2Int playerCell)
     {
-        // The liquid is paused; each surviving cube returns to its own emission anchor.
+        foreach(var flower in activeFlowers)if(flower.HasBlueCell(playerCell))return false;
+        // Blue paper freezes at its current shape and position.
         var blocks=new List<PrototypeFallingBlock>(sceneBlocks);
         foreach(var flower in activeFlowers) blocks.AddRange(flower.BlueBlocks);
         foreach(var block in blocks) block.GetComponent<BoxCollider>().enabled=false;
         Physics.SyncTransforms(); var occupied=new HashSet<Vector2Int>();
         foreach(var block in blocks)
         {
-            var state=block.CurrentState; if(state.Lost || state.Water) continue;
+            var state=block.CurrentState; if(state.Lost || (state.Water&&!block.EnterableBlue)) continue;
             var cell=Vector2Int.RoundToInt(state.Position); var shape=block.GetComponent<BoxCollider>();
             var center=new Vector3(cell.x,block.transform.position.y,cell.y)+block.transform.TransformVector(shape.center);
             var half=Vector3.Scale(shape.size,block.transform.lossyScale)*.5f-Vector3.one*.01f;
@@ -308,11 +315,11 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             hintStyle=new GUIStyle(GUI.skin.label){font=hintFont,fontSize=16,alignment=TextAnchor.MiddleCenter};
             hintStyle.normal.textColor=PrototypePlayer.HudInk;
         }
-        string hint=gameObject.scene.name=="GrayFallPlaytest" ? "灰块实验 · 右Shift放水/暂停 · WASD移动 · Space跳跃 · Z撤回 · R重置" : platformMode?"第二单元 · W上浮 / S下潜 · 水面Space跃出 · 绿色岸边可切回2.5D":"第二单元 · 先背身拉翻花 / Q换色，再切入2D放水 · 每蓝格一份水";
-        if(gameObject.scene.name=="FanhuaMechanismLab")hint="专项测试：先在3D造形，再切2D验证材料与外形；底部按钮切换组合";
+        string hint=gameObject.scene.name=="GrayFallPlaytest" ? "灰块实验 · 右Shift放水/暂停 · WASD移动 · Space跳跃 · Z撤回 · R重置" : platformMode?"第二单元 · W/S在蓝色翻花内钻行 · Space跃出 · 绿色岸边可切回2.5D":"第二单元 · 先背身拉翻花 / Q换色，再切入2D放水 · 蓝格整格下落、不流动";
+        if(gameObject.scene.name=="FanhuaMechanismLab")hint="专项测试：先在3D造形，再切2D测试钻入蓝色纸体；底部按钮切换组合";
         if(gameObject.scene.name.StartsWith("Connected"))hint="纸花庭院 · 展开前Q换色 · E+方向推拉截面 · 右Shift切换 · Esc返回庭院";
         GUI.Label(new Rect(0,44,Screen.width,28),hint,hintStyle);
-        if(simulation!=null) GUI.Label(new Rect(0,72,Screen.width,26),$"水量 {simulation.TotalWater:F1}　冷却消耗 {simulation.TotalSpent:F1}　流失 {simulation.TotalLost:F1}",hintStyle);
+        if(simulation!=null) GUI.Label(new Rect(0,72,Screen.width,26),$"蓝格 {simulation.TotalWater:F0}　合成消耗 {simulation.TotalSpent:F0}　掉出场景 {simulation.TotalLost:F0}",hintStyle);
         if(!platformMode && simulation!=null && Camera.main!=null)
             for(int i=0;i<sources.Count;i++)
             {

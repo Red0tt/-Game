@@ -26,7 +26,7 @@ internal static class FanhuaPaperMesh
         for(int i=0;i<indexCount;i+=3)triangles.AddRange(new[]{triangles[i]+count,triangles[i+2]+count,triangles[i+1]+count});
         var mesh=new Mesh{name=name};mesh.SetVertices(vertices);mesh.SetTriangles(triangles,0);mesh.RecalculateNormals();return mesh;
     }
-    internal static Mesh Ribbon(List<Vector3> centers,bool positiveSide)
+    internal static Mesh Ribbon(List<Vector3> centers,bool positiveSide,bool? horizontal=null)
     {
         var vertices=new List<Vector3>();var triangles=new List<int>();
         const int resolution=24,sides=8;
@@ -36,7 +36,7 @@ internal static class FanhuaPaperMesh
             Vector3 center=Vector3.Lerp(centers[segment],centers[segment+1],fraction);
             // Grid-aligned cross sections: each cell is straight or one full diagonal.
             Vector3 tangent=centers[centers.Count-1]-centers[0];
-            Vector3 lateral=Mathf.Abs(tangent.x)>=Mathf.Abs(tangent.z)?Vector3.forward:Vector3.left;
+            Vector3 lateral=(horizontal??(Mathf.Abs(tangent.x)>=Mathf.Abs(tangent.z)))?Vector3.forward:Vector3.left;
             float radius=1f;
             for(int n=0;n<=sides;n++)
             {

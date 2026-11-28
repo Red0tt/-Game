@@ -65,8 +65,8 @@ public static class ValidateGrayPlaytest
   typeof(PrototypePlayer).GetMethod("SetMode",flags).Invoke(p,new object[]{PlayerMode.Grid});
   foreach(var c in UnityEngine.Object.FindObjectsOfType<BoxCollider2D>())if(c.name=="Gray solid footprint"&&c.enabled&&c.gameObject.activeInHierarchy)throw new Exception("2D stone projection not paused");
   foreach(var source in UnityEngine.Object.FindObjectsOfType<PrototypeFallingBlock>())
-   if(source.CurrentState.Water && !source.CurrentState.Lost && (source.GetComponent<Renderer>().enabled || source.GetComponent<BoxCollider>().enabled))
-    throw new Exception("liquid source returned as a grid cube");
+   if(source.CurrentState.Water && !source.CurrentState.Lost && (source.GetComponent<Renderer>().enabled || source.GetComponent<BoxCollider>().enabled!=source.EnterableBlue))
+    throw new Exception("blue frozen collision or visual mismatch");
   var frozen=water.Capture();
   for(int i=0;i<20;i++)typeof(PrototypePlayer).GetMethod("FixedUpdate",flags).Invoke(p,null);
   if(water.Simulation.TickCount!=frozen.Fluid.Tick || Mathf.Abs(water.Simulation.TotalLost-frozen.Fluid.Lost.Sum())>.00001f)

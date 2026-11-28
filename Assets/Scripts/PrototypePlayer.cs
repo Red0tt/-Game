@@ -841,6 +841,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     {
         box = null;
         falling = null;
+        if(Mode==PlayerMode.Grid&&flowers!=null)
+            foreach(var flower in flowers)if(flower.HasBlueCell(Vector2Int.RoundToInt(new Vector2(position.x,position.z))))return true;
         foreach (Collider obstacle in GridOverlaps(position))
         {
             if (box != null || falling != null)
