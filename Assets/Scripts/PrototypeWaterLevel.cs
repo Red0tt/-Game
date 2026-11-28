@@ -26,6 +26,10 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     private Material waterMaterial,markerMaterial,previewMaterial;
     private readonly List<LineRenderer> sourcePreviews=new List<LineRenderer>();
     private GameObject marker;
+    private readonly List<GameObject> stoneViews=new List<GameObject>();
+    private readonly List<GameObject> stoneProjections=new List<GameObject>();
+    private Transform stonePhysicsRoot;
+    private Material stoneMaterial;
     private bool platformMode;
     private float clock, hintUntil;
     private string message;
@@ -52,6 +56,7 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     }
     internal void Initialize(Transform physicsRoot)
     {
+        stonePhysicsRoot=physicsRoot;
         player=GetComponent<PrototypePlayer>();
         sceneFire=FindObjectsOfType<Unit02FireTile>();
         foreach(var fire in sceneFire) fire.CreateProjection(physicsRoot);
@@ -73,7 +78,8 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         }
         ApplyGate();
         if(sceneFire!=null) foreach(var fire in sceneFire) fire.SetCooling(simulation!=null ? simulation.FireProgress(fire.Cell) : 0);
-        pools.Clear(); foreach(var visual in visuals) visual.SetActive(false);
+        RenderStones();
+        UpdatePools();RenderPools();
         foreach(var preview in sourcePreviews) preview.gameObject.SetActive(false);
     }
     private void Bind(PrototypeFanhua[] activeFlowers)
@@ -118,10 +124,36 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         Bind(activeFlowers); RebuildTerrain(); clock+=seconds;
         while(clock>=flowInterval) { simulation.Step(); clock-=flowInterval; }
         ApplyCooling();
+        foreach(var flower in flowers){flower.ResolveUnsupportedRed();foreach(var cell in flower.BrokenFireCells)simulation.RemoveFire(cell);}
         for(int i=0;i<sources.Count;i++) if(simulation.Remaining(i)<.00001f) sources[i].Discard();
+    }
+    private void RenderStones()
+    {
+        var cells=simulation==null ? new List<Vector2Int>() : new List<Vector2Int>(simulation.StoneCells);
+        if(stoneMaterial==null) { stoneMaterial=new Material(Shader.Find("Standard")); stoneMaterial.color=Color.gray; }
+        while(stoneViews.Count<cells.Count)
+        {
+            var obj=GameObject.CreatePrimitive(PrimitiveType.Cube); obj.name="Cooled red · falling gray solid";
+            obj.transform.SetParent(transform.parent,false); obj.GetComponent<Renderer>().sharedMaterial=stoneMaterial;
+            var proxy=new GameObject("Gray solid footprint"); proxy.transform.SetParent(stonePhysicsRoot,false);
+            proxy.AddComponent<BoxCollider2D>().size=Vector2.one;
+            stoneProjections.Add(proxy);
+            stoneViews.Add(obj);
+        }
+        for(int i=0;i<stoneViews.Count;i++)
+        {
+            var obj=stoneViews[i]; var proxy=stoneProjections[i];
+            bool active=i<cells.Count; obj.SetActive(active); proxy.SetActive(active && platformMode);
+            if(!active) continue;
+            obj.transform.position=new Vector3(cells[i].x,.5f,cells[i].y);
+            obj.GetComponent<BoxCollider>().enabled=!platformMode;
+            proxy.transform.position=(Vector2)cells[i];
+        }
+        Physics2D.SyncTransforms(); Physics.SyncTransforms();
     }
     private void ApplyCooling()
     {
+        RenderStones();
         foreach(var fire in sceneFire) fire.SetCooling(simulation.FireProgress(fire.Cell));
         foreach(var flower in flowers)
             foreach(var cell in flower.FireCells) if(simulation.Cooled(cell)) flower.CoolCell(cell);
@@ -149,6 +181,13 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         if(gateVisual!=null) gateVisual.enabled=!SwitchOpen;
         if(player!=null) player.RefreshWaterProjections();
     }
+    private void UpdatePools()
+    {
+        pools.Clear();if(simulation==null)return;
+        foreach(var cell in simulation.Cells)
+        {float depth=simulation.Depth(cell);if(depth>.0001f)pools.Add(new Rect(cell.x-.5f,cell.y-.5f,1,Mathf.Min(1,depth)));}
+    }
+
     private void RenderPools()
     {
         if(waterMaterial==null)
@@ -165,10 +204,10 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         }
         for(int i=0;i<visuals.Count;i++)
         {
-            visuals[i].SetActive(platformMode && i<pools.Count);
+            visuals[i].SetActive(i<pools.Count);
             if(i>=pools.Count) continue;
-            var pool=pools[i]; visuals[i].transform.position=new Vector3(pool.center.x,.5f,pool.center.y);
-            visuals[i].transform.localScale=new Vector3(pool.width,.55f,pool.height);
+            var pool=pools[i]; visuals[i].transform.position=platformMode ? new Vector3(pool.center.x,.5f,pool.center.y) : new Vector3(pool.x+.5f,.04f,pool.y+.5f);
+            visuals[i].transform.localScale=platformMode ? new Vector3(pool.width,.55f,pool.height) : new Vector3(.96f,.04f+pool.height*.12f,.96f);
         }
     }
     private void RenderSources()
@@ -183,7 +222,7 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         }
         for(int i=0;i<sourcePreviews.Count;i++)
         {
-            bool show=platformMode && i<sources.Count && simulation.Remaining(i)>.00001f;
+            bool show=platformMode && i<sources.Count && !sources[i].CurrentState.Water && simulation.Remaining(i)>.00001f;
             sourcePreviews[i].gameObject.SetActive(show);if(!show)continue;
             var cell=simulation.Anchor(i);
             sourcePreviews[i].SetPositions(new[]{new Vector3(cell.x-.43f,.85f,cell.y-.43f),new Vector3(cell.x+.43f,.85f,cell.y-.43f),
@@ -193,7 +232,9 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
     internal void SetMode(bool platform)
     {
         platformMode=platform;
-        for(int i=0;i<visuals.Count;i++) visuals[i].SetActive(platform && i<pools.Count);
+        RenderStones();
+        RenderPools();
+        for(int i=0;i<visuals.Count;i++) visuals[i].SetActive(i<pools.Count);
         foreach(var preview in sourcePreviews) preview.gameObject.SetActive(false);
     }
     private bool Wet(Vector2 point) { foreach(var pool in pools) if(pool.Contains(point)) return true; return false; }
@@ -236,7 +277,7 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
         Physics.SyncTransforms(); var occupied=new HashSet<Vector2Int>();
         foreach(var block in blocks)
         {
-            var state=block.CurrentState; if(state.Lost) continue;
+            var state=block.CurrentState; if(state.Lost || state.Water) continue;
             var cell=Vector2Int.RoundToInt(state.Position); var shape=block.GetComponent<BoxCollider>();
             var center=new Vector3(cell.x,block.transform.position.y,cell.y)+block.transform.TransformVector(shape.center);
             var half=Vector3.Scale(shape.size,block.transform.lossyScale)*.5f-Vector3.one*.01f;
@@ -254,9 +295,10 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
             hintStyle=new GUIStyle(GUI.skin.label){font=hintFont,fontSize=16,alignment=TextAnchor.MiddleCenter};
             hintStyle.normal.textColor=PrototypePlayer.HudInk;
         }
-        string hint=platformMode?"第二单元 · W上浮 / S下潜 · 水面Space跃出 · 绿色岸边可切回2.5D":"第二单元 · 先背身拉翻花 / Q换色，再切入2D放水 · 每蓝格一份水";
-        GUI.Label(new Rect(0,10,Screen.width,28),hint,hintStyle);
-        if(simulation!=null) GUI.Label(new Rect(0,38,Screen.width,26),$"水量 {simulation.TotalWater:F1}　冷却消耗 {simulation.TotalSpent:F1}　流失 {simulation.TotalLost:F1}",hintStyle);
+        string hint=gameObject.scene.name=="GrayFallPlaytest" ? "灰块实验 · 右Shift放水/暂停 · WASD移动 · Space跳跃 · Z撤回 · R重置" : platformMode?"第二单元 · W上浮 / S下潜 · 水面Space跃出 · 绿色岸边可切回2.5D":"第二单元 · 先背身拉翻花 / Q换色，再切入2D放水 · 每蓝格一份水";
+        if(gameObject.scene.name.StartsWith("Connected"))hint="纸花庭院 · 展开前Q换色 · E+方向推拉截面 · 右Shift切换 · Esc返回庭院";
+        GUI.Label(new Rect(0,44,Screen.width,28),hint,hintStyle);
+        if(simulation!=null) GUI.Label(new Rect(0,72,Screen.width,26),$"水量 {simulation.TotalWater:F1}　冷却消耗 {simulation.TotalSpent:F1}　流失 {simulation.TotalLost:F1}",hintStyle);
         if(!platformMode && simulation!=null && Camera.main!=null)
             for(int i=0;i<sources.Count;i++)
             {
@@ -264,10 +306,13 @@ public sealed class PrototypeWaterLevel : MonoBehaviour
                 Vector3 screen=Camera.main.WorldToScreenPoint(sources[i].transform.position+Vector3.up*.7f);
                 GUI.Label(new Rect(screen.x-35,Screen.height-screen.y-15,70,25),$"{amount:F2}份",hintStyle);
             }
-        if(Time.unscaledTime<hintUntil) GUI.Label(new Rect(0,66,Screen.width,26),message,hintStyle);
+        if(Time.unscaledTime<hintUntil) GUI.Label(new Rect(0,100,Screen.width,26),message,hintStyle);
     }
     private void OnDestroy()
     {
+        foreach(var obj in stoneViews)if(obj!=null)Destroy(obj);
+        foreach(var obj in stoneProjections)if(obj!=null)Destroy(obj);
+        if(stoneMaterial!=null)Destroy(stoneMaterial);
         if(marker!=null) Destroy(marker); if(markerMaterial!=null) Destroy(markerMaterial);
         if(waterMaterial!=null) Destroy(waterMaterial); if(previewMaterial!=null) Destroy(previewMaterial);
         foreach(var preview in sourcePreviews) if(preview!=null) Destroy(preview.gameObject);

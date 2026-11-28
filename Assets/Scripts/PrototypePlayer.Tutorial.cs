@@ -40,10 +40,10 @@ public sealed partial class PrototypePlayer
         if (teachFanhuaDirections)
         {
             if (AllFanhuaDirectionsPracticed)
-                return "四个方向都试过了。按 Q 收拢，或按 R 重新演示";
+                return "四个方向都试过了。按 R 重新演示";
             string instruction = fanhua.Axis == 0
                 ? "贴着翻花的一边，背对它走，拉开翻花"
-                : "按 Q 收拢翻花，再绕到另一边试试";
+                : "翻花保持连接且不可收拢；按 Z 撤回后尝试其他方向";
             return instruction + "\n" +
                 FanhuaDirectionStatus(0, "W 上") + "    " + FanhuaDirectionStatus(1, "S 下") + "    " +
                 FanhuaDirectionStatus(2, "A 左") + "    " + FanhuaDirectionStatus(3, "D 右");
@@ -82,7 +82,7 @@ public sealed partial class PrototypePlayer
             case "Fanhua07":
                 if (grid && System.Array.Exists(flowers, flower =>
                         flower.Axis != 0 && flower.DistanceTo(cell) > 1))
-                    return "离开翻花周围时，按 Q 收拢翻花，之后可以再次拉出";
+                    return "翻花不可收拢，先观察已有形状与回程";
                 break;
         }
         return null;

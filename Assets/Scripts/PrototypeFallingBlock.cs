@@ -10,6 +10,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         public bool Plugged;
         public bool Lost;
         public bool Water;
+        public bool Gray;
     }
 
     [SerializeField, Min(0f)] private float gravityScale = 1f;
@@ -48,7 +49,7 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     public void SyncFromPhysics()
     {
         if (!CurrentState.Plugged && !CurrentState.Lost)
-            RestoreWorldPosition(new State { Position = footprint.position, Velocity = footprint.velocity, Water = CurrentState.Water });
+            RestoreWorldPosition(new State { Position = footprint.position, Velocity = footprint.velocity, Water = CurrentState.Water, Gray = CurrentState.Gray });
     }
 
     public void RestoreWorldPosition(State state)
@@ -62,10 +63,10 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         CurrentState = state;
         if (footprint != null) footprint.GetComponent<BoxCollider2D>().isTrigger = state.Water;
         GetComponent<Renderer>().enabled = !state.Lost &&
-            (usesWaterViews ? (!waterView || state.Plugged) : !state.Water);
+            (usesWaterViews ? (!state.Water && (!waterView || state.Plugged || state.Gray)) : !state.Water);
         if (transform.parent != null && transform.parent.GetComponentInChildren<PrototypeWaterLevel>() != null)
         {
-            var color = state.Plugged ? Color.gray : new Color(.24f,.49f,.81f);
+            var color = (state.Plugged || state.Gray) ? Color.gray : new Color(.24f,.49f,.81f);
             var properties = new MaterialPropertyBlock();
             var renderer = GetComponent<Renderer>();
             renderer.GetPropertyBlock(properties);
@@ -145,14 +146,15 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
     {
         usesWaterViews = true;
         waterView = platformMode;
-        GetComponent<Renderer>().enabled = !CurrentState.Lost && (!platformMode || CurrentState.Plugged);
-        GetComponent<BoxCollider>().enabled = !platformMode && !CurrentState.Lost;
+        GetComponent<Renderer>().enabled = !CurrentState.Lost && (!CurrentState.Water && (!platformMode || CurrentState.Plugged || CurrentState.Gray));
+        GetComponent<BoxCollider>().enabled = !platformMode && !CurrentState.Lost && !CurrentState.Water;
     }
 
     internal Collider2D WaterShape => footprint.GetComponent<Collider2D>();
 
     public void SetWater(bool value)
     {
+        if (CurrentState.Gray && value) return;
         State state = CurrentState;
         state.Water = value;
         state.Velocity = Vector2.zero;
@@ -160,17 +162,18 @@ public sealed class PrototypeFallingBlock : MonoBehaviour
         footprint.GetComponent<BoxCollider2D>().isTrigger = value;
         footprint.bodyType = value ? RigidbodyType2D.Kinematic : RigidbodyType2D.Dynamic;
         GetComponent<Renderer>().enabled = !CurrentState.Lost &&
-            (usesWaterViews ? (!waterView || CurrentState.Plugged) : !value);
+            (usesWaterViews ? (!CurrentState.Water && (!waterView || CurrentState.Plugged || CurrentState.Gray)) : !value);
     }
 
     public void Plug(Vector2 cell)
     {
-        RestoreWorldPosition(new State { Position = cell, Plugged = true });
+        RestoreWorldPosition(new State { Position = cell, Gray = true });
         ResumePhysics();
     }
 
     public void DestroyFootprint()
     {
+        if(footprint==null)return;
         footprint.simulated = false;
         Destroy(footprint.gameObject);
     }

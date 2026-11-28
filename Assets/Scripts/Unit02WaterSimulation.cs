@@ -11,6 +11,7 @@ public sealed class Unit02WaterSimulation
         public Vector2Int[] Anchors;
         public float[] Spent, Lost;
         public Dictionary<Vector2Int, float> Fires = new Dictionary<Vector2Int, float>();
+        public Dictionary<Vector2Int, Vector2Int> Stones = new Dictionary<Vector2Int, Vector2Int>();
         public int Tick;
     }
     public readonly RectInt Bounds;
@@ -20,6 +21,7 @@ public sealed class Unit02WaterSimulation
     private const float Epsilon = .000001f;
     public IEnumerable<Vector2Int> Cells => state.Cells.Keys;
     public IEnumerable<Vector2Int> FireCells => state.Fires.Keys;
+    public IEnumerable<Vector2Int> StoneCells => state.Stones.Values;
     public int TickCount => state.Tick;
 
     public Unit02WaterSimulation(RectInt bounds, Vector2Int[] anchors)
@@ -31,6 +33,7 @@ public sealed class Unit02WaterSimulation
     public void SetSolids(IEnumerable<Vector2Int> cells)
     { solid.Clear(); foreach(var cell in cells) solid.Add(cell); }
     public void AddFire(Vector2Int cell) { if(!state.Fires.ContainsKey(cell)) state.Fires.Add(cell,0); }
+    public void RemoveFire(Vector2Int cell) {state.Fires.Remove(cell);}
     public float FireProgress(Vector2Int cell) => state.Fires.TryGetValue(cell,out float amount) ? amount : 0;
     public bool Cooled(Vector2Int cell) => FireProgress(cell)>=1f;
     public float Remaining(int source) => Mathf.Max(0,1f-state.Spent[source]-state.Lost[source]);
@@ -51,7 +54,7 @@ public sealed class Unit02WaterSimulation
         Add(anchor,source,Remaining(source));
         Clean();
     }
-    private bool Blocked(Vector2Int cell) => solid.Contains(cell) || state.Fires.ContainsKey(cell);
+    private bool Blocked(Vector2Int cell) => solid.Contains(cell) || (state.Fires.ContainsKey(cell) && !Cooled(cell)) || state.Stones.ContainsValue(cell);
     private void Add(Vector2Int cell,int source,float amount)
     {
         if(amount<=0) return;
@@ -62,7 +65,7 @@ public sealed class Unit02WaterSimulation
     private void Transfer(Vector2Int from,Vector2Int to,float amount)
     {
         float total=Depth(from);
-        if(total<Epsilon || amount<Epsilon) return;
+        if(total<=0f || amount<=0f) return;
         amount=Mathf.Min(total,amount);
         var amounts=state.Cells[from];
         for(int i=0;i<SourceCount;i++)
@@ -98,7 +101,8 @@ public sealed class Unit02WaterSimulation
             if(solid.Contains(above)) continue;
             Absorb(above,fire,1f-state.Fires[fire]);
             // Numerical rounding must never pull water from unrelated cells.
-            if(state.Fires[fire]>=1f-Epsilon) state.Fires[fire]=1f;
+            if(state.Fires[fire]>=1f-Epsilon)
+            { state.Fires[fire]=1f; state.Stones[fire]=fire; }
         }
     }
     public bool HasSupport(Vector2Int cell) => Supported(cell);
@@ -169,12 +173,30 @@ public sealed class Unit02WaterSimulation
                 if(!Blocked(edge)) Transfer(edge,new Vector2Int(x==Bounds.xMin ? x-1:x+1,y),Depth(edge)*.5f);
             }
         }
-        Burn(); Clean(); state.Tick++;
+        Burn();
+        // Bottom-up order permits a stack to fall without interpenetrating.
+        var origins=new List<Vector2Int>(state.Stones.Keys);
+        origins.Sort((a,b)=>state.Stones[a].y.CompareTo(state.Stones[b].y));
+        foreach(var origin in origins)
+        {
+            var cell=state.Stones[origin]; var below=cell+Vector2Int.down;
+            if(Blocked(below) || Depth(below)>.000001f) continue;
+            if(Bounds.Contains(below)) state.Stones[origin]=below;
+            else state.Stones.Remove(origin);
+        }
+        Clean(); state.Tick++;
     }
     private void Clean()
     {
         var empty=new List<Vector2Int>();
-        foreach(var cell in state.Cells.Keys) if(Depth(cell)<.00000001f) empty.Add(cell);
+        foreach(var cell in state.Cells.Keys)
+            if(Depth(cell)<Epsilon)
+            {
+                // Account for numerical residue instead of leaving an undrainable drop.
+                var amounts=state.Cells[cell];
+                for(int i=0;i<SourceCount;i++)state.Lost[i]+=amounts[i];
+                empty.Add(cell);
+            }
         foreach(var cell in empty) state.Cells.Remove(cell);
     }
     public State Capture() => Copy(state);
@@ -182,7 +204,7 @@ public sealed class Unit02WaterSimulation
     private static State Copy(State input)
     {
         var result=new State { Anchors=(Vector2Int[])input.Anchors.Clone(), Spent=(float[])input.Spent.Clone(),
-            Lost=(float[])input.Lost.Clone(), Fires=new Dictionary<Vector2Int,float>(input.Fires), Tick=input.Tick };
+            Lost=(float[])input.Lost.Clone(), Fires=new Dictionary<Vector2Int,float>(input.Fires), Stones=new Dictionary<Vector2Int,Vector2Int>(input.Stones), Tick=input.Tick };
         foreach(var pair in input.Cells) result.Cells.Add(pair.Key,(float[])pair.Value.Clone());
         return result;
     }

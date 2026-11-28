@@ -3,7 +3,7 @@ using UnityEngine.SceneManagement;
 
 public sealed class PrototypeStartMenu : MonoBehaviour
 {
-    private const string FirstLevel = "Assets/Level/Level01";
+    private const string FirstLevel = "FanhuaWorldMap";
     private Font menuFont;
     private GUIStyle title;
     private GUIStyle startButton;
@@ -37,13 +37,17 @@ public sealed class PrototypeStartMenu : MonoBehaviour
         try
         {
             var card = new Rect(Screen.width / scale * 0.5f - 204f,
-                Screen.height / scale * 0.5f - 110f, 408f, 220f);
+                Screen.height / scale * 0.5f - 110f, 408f, 290f);
             PrototypePlayer.DrawPanel(card);
             GUI.Label(new Rect(card.x, card.y + 25f, card.width, 82f), "翻花", title);
             if (PrototypePlayer.DrawHudButton(
                     new Rect(card.center.x - 111f, card.y + 125f, 222f, 54f),
                     "开始游戏", startButton, PrototypePlayer.HudMint))
                 StartGame();
+            if (PrototypePlayer.DrawHudButton(
+                    new Rect(card.center.x - 111f, card.y + 195f, 222f, 54f),
+                    "灰块下落试玩", startButton, PrototypePlayer.HudMint))
+                SceneManager.LoadScene("GrayFallPlaytest");
         }
         finally
         {

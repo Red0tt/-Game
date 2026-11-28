@@ -4,6 +4,7 @@ public sealed class PrototypePressureGate : MonoBehaviour
 {
     [SerializeField] private Transform plate;
     [SerializeField] private Transform flowerPlate;
+    [SerializeField] private Transform stonePlate;
     [SerializeField] private BoxCollider door;
     [SerializeField] private Renderer doorVisual;
 
@@ -33,6 +34,18 @@ public sealed class PrototypePressureGate : MonoBehaviour
             flowerPressed = System.Array.Exists(flowers, flower => flower.PressesPlate(cell));
         }
         bool open = plate == null ? flowerPressed : boxPressed && (flowerPlate == null || flowerPressed);
+        if(stonePlate!=null)
+        {
+            bool pressed=false;
+            var level=transform.root.GetComponentInChildren<PrototypeWaterLevel>();
+            if(level!=null&&level.Simulation!=null)
+            {
+                var cell=Vector2Int.RoundToInt(new Vector2(stonePlate.position.x,stonePlate.position.z));
+                foreach(var stone in level.Simulation.StoneCells)if(stone==cell){pressed=true;break;}
+            }
+            open=(flowerPlate==null&&plate==null?true:open)&&pressed;
+            UpdatePlateVisual(stonePlate,pressed);
+        }
         door.enabled = !open;
         doorVisual.enabled = !open;
 

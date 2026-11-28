@@ -34,3 +34,6 @@
 # Local review projects, backups and launch helper
 /ArtReview/
 /打开 MintCourt-Unity.command
+
+# Local development snapshots (source is versioned below)
+/Backups/

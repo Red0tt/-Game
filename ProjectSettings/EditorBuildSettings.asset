@@ -41,4 +41,37 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Level/Unit02/Unit02Water01.unity
     guid: fa39a6647b8be4f32a2f36b954552443
+  - enabled: 1
+    path: Assets/Scenes/GrayFallPlaytest.unity
+    guid: e98d8dd3b2f1148eebbcff2f6cf25b06
+  - enabled: 1
+    path: Assets/Scenes/FanhuaWorldMap.unity
+    guid: d2006ae92a609490f90534f6a1a200ab
+  - enabled: 1
+    path: Assets/Level/Connected/Connected01.unity
+    guid: f270865edeba243b1a86b9353673512f
+  - enabled: 1
+    path: Assets/Level/Connected/Connected02.unity
+    guid: 3938cbf24a328473e8282e496c418339
+  - enabled: 1
+    path: Assets/Level/Connected/Connected03.unity
+    guid: 5a18aa2c212a9499fb559b69554e1e89
+  - enabled: 1
+    path: Assets/Level/Connected/Connected04.unity
+    guid: 5833b506598614c47a7fe00e20640217
+  - enabled: 1
+    path: Assets/Level/Connected/Connected05.unity
+    guid: 30c0aa9f20e8b4c01ab630e30474d7ca
+  - enabled: 1
+    path: Assets/Level/Connected/Connected06.unity
+    guid: 7c3e65806eaf64e3fad72ea6736c0095
+  - enabled: 1
+    path: Assets/Level/Connected/Connected07.unity
+    guid: 523d84f3f8a104aa982f289ce93c0cfd
+  - enabled: 1
+    path: Assets/Level/Connected/Connected08.unity
+    guid: 2c37bfcec119243cdadb0ef963a0ca13
+  - enabled: 1
+    path: Assets/Level/Connected/Connected09.unity
+    guid: 42834ccffa2724080962ae3497b39677
   m_configObjects: {}

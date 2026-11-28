@@ -195,7 +195,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     {
         if (Mode == PlayerMode.Platform)
         {
-            if (waterLevel != null && !levelComplete && !undoRequested && !resetRequested) waterLevel.Advance(Time.fixedDeltaTime, flowers);
+            if (waterLevel != null && !levelComplete && !undoRequested && !resetRequested){waterLevel.Advance(Time.fixedDeltaTime, flowers);RefreshGates();}
             CopyPlatformPosition();
             FinishPlatformStep();
         }
@@ -245,22 +245,12 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             fanhuaInteractionRequested = false;
             var cell = Vector2Int.RoundToInt(new Vector2(body.position.x, body.position.z));
             int index = FindFanhuaInteractionTarget(cell);
-            if (index >= 0 && (waterLevel == null || waterLevel.CanEditFlower(index)))
+            if (index >= 0 && flowers[index].Axis == 0 && (waterLevel == null || waterLevel.CanEditFlower(index)))
             {
                 PrototypeFanhua flower = flowers[index];
                 history.Push(CaptureState());
                 EndAction();
-                if (flower.Axis != 0)
-                {
-                    if (pullFlower == index)
-                    {
-                        pullDirection = Vector2Int.zero;
-                        pullFlower = -1;
-                    }
-                    flower.SetEnd(flower.AnchorCell);
-                }
-                else
-                    flower.TogglePalette();
+                flower.TogglePalette();
 
                 RefreshGates();
                 Physics.SyncTransforms();
@@ -441,7 +431,9 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             if (state.FallingBlocks[i].Position != initialState.FallingBlocks[i].Position ||
                 state.FallingBlocks[i].Velocity != initialState.FallingBlocks[i].Velocity ||
                 state.FallingBlocks[i].Lost != initialState.FallingBlocks[i].Lost ||
-                state.FallingBlocks[i].Plugged != initialState.FallingBlocks[i].Plugged)
+                state.FallingBlocks[i].Plugged != initialState.FallingBlocks[i].Plugged ||
+                state.FallingBlocks[i].Water != initialState.FallingBlocks[i].Water ||
+                state.FallingBlocks[i].Gray != initialState.FallingBlocks[i].Gray)
                 return false;
         return true;
     }
@@ -620,6 +612,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
 
     private void OnDestroy()
     {
+        foreach(var flower in flowers)flower.Dispose();
         if (platformPhysics != null)
             Destroy(platformPhysics);
         if (platformPlayerMaterial != null)
@@ -655,6 +648,22 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         nextGridStep = Time.fixedTime + gridStepInterval;
 
         Vector3 position = body.position;
+        if(Input.GetKey(KeyCode.E))
+        {
+            var playerCell=Vector2Int.RoundToInt(new Vector2(position.x,position.z));
+            var editStep=new Vector2Int((int)direction.x,(int)direction.z);
+            if(!HasSupport(position+direction)){EndAction();return;}
+            for(int i=0;i<flowers.Length;i++)
+            {
+                if(flowers[i].DistanceTo(playerCell)>1)continue;
+                if(waterLevel!=null&&!waterLevel.CanEditFlower(i))break;
+                if(!flowers[i].TryShiftStrip(playerCell,editStep,groundLayers,capsule,false))continue;
+                var beforeEdit=CaptureState();
+                if(flowers[i].TryShiftStrip(playerCell,editStep,groundLayers,capsule,true)){history.Push(beforeEdit);body.position=position+direction;}
+                EndAction();RefreshGates();break;
+            }
+            return;
+        }
         Vector3 cell = position + direction;
         if (!HasSupport(position) || HasObstacle(cell, out PrototypePushBox box, out PrototypeFallingBlock falling))
         {
@@ -835,6 +844,7 @@ public sealed partial class PrototypePlayer : MonoBehaviour
     {
         foreach (PrototypePressureGate gate in gates)
             gate.Refresh(boxes, flowers);
+        RefreshWaterProjections();
     }
 
     private static void UpdateProjection(BoxCollider source, BoxCollider2D projection)
@@ -909,7 +919,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
         ("右 Shift", "切换形态"),
         ("Z", "撤回操作"),
         ("R", "重置关卡"),
-        ("Q", "翻转／收拢翻花")
+        ("Q", "展开前翻转配色"),
+        ("E+方向", "推拉截面")
     };
 
     private Font completionFont;
@@ -1006,6 +1017,8 @@ public sealed partial class PrototypePlayer : MonoBehaviour
             else
             {
                 DrawControlHints();
+                if(fanhua!=null && Mode==PlayerMode.Grid)
+                    GUI.Label(new Rect(225,12,720,30),$"翻花 {fanhua.Extension}/10 · {fanhua.PaletteHint} · E+方向推拉截面",controlAction);
                 if (body != null)
                     DrawTutorial(Screen.width / scale, Screen.height / scale);
             }
